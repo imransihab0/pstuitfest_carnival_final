@@ -87,3 +87,22 @@ insert-only at the application layer — document this constraint in a comment
 even though Postgres won't enforce immutability natively. Generate the
 initial migration and seed script.
 ```
+
+---
+
+## Entry 004
+
+**Timestamp:** 2026-08-29
+
+```
+Append to PROMPTS.md, then proceed.
+
+Scaffold /frontend: React + TypeScript + Vite + Tailwind CSS. Configure the
+Tailwind theme to a strict grayscale palette (#000000, #111111, #4a4a4a,
+#e5e5e5, #ffffff) with exactly one accent color reserved for destructive/
+error states only — enforce this via Tailwind config tokens, not ad hoc
+classes. Set up React Router, an API client wrapper (fetch/axios) that
+attaches the JWT access token and refreshes it transparently on 401. Do not
+build feature screens yet — just the shell, layout, and typography system
+(monospace/tabular-nums for money values).
+```

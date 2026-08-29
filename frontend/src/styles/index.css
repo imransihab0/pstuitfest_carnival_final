@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: light;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply m-0 min-w-80 bg-canvas font-sans text-base leading-normal text-charcoal antialiased;
+  }
+
+  ::selection {
+    @apply bg-charcoal text-canvas;
+  }
+
+  :focus-visible {
+    @apply outline outline-2 outline-offset-4 outline-ink;
+  }
+}
+
+@layer components {
+  .skip-link {
+    @apply fixed left-4 top-4 z-50 -translate-y-24 bg-ink px-4 py-3 text-sm font-semibold text-canvas transition-transform focus:translate-y-0;
+  }
+
+  .money {
+    @apply font-mono tabular-nums tracking-tight;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
