@@ -25,6 +25,12 @@ export const walletApi = {
   async requests() {
     return (await apiClient.get<RequestsResponse>('/money-requests')).data
   },
+  async createRequest(input: { requesteeId: string; amountPoisha: string; note?: string; idempotencyKey?: string }) {
+    const { idempotencyKey, ...body } = input
+    return (await apiClient.post<{ id: string; status: string }>(
+      '/money-requests', body, idempotencyKey ? { headers: { 'Idempotency-Key': idempotencyKey } } : undefined
+    )).data
+  },
   async updateRequest(id: string, action: 'accept' | 'reject', pin?: string, idempotencyKey?: string) {
     return (await apiClient.post<{ request: MoneyRequest; balancePoisha?: string }>(
       `/money-requests/${id}/${action}`,
