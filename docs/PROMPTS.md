@@ -87,3 +87,50 @@ insert-only at the application layer — document this constraint in a comment
 even though Postgres won't enforce immutability natively. Generate the
 initial migration and seed script.
 ```
+
+---
+
+## Entry 004
+
+**Timestamp:** 2026-08-29
+
+```
+Append to PROMPTS.md, then proceed.
+
+Implement TransferService.executeTransfer(senderUserId, receiverIdentifier,
+amountPoisha, idempotencyKey) as a single Prisma $transaction. Requirements:
+
+Resolve both accounts, then acquire row locks via SELECT ... FOR UPDATE
+  in a deterministic order (sort by account UUID) to prevent deadlocks
+  under concurrent cross-transfers.
+Validate: sender !== receiver, amount > 0, sender balance >= amount.
+On the idempotency_keys table: if the key already exists with a matching
+  request hash, short-circuit and return the cached result — do not
+  re-execute the transfer.
+4.Write exactly one DEBIT and one CREDIT row to ledger_entries, update both
+  cached accounts.balance_poisha fields, and insert the transactions row
+  with status COMPLETED, all inside the same transaction.
+5.On any validation failure, roll back and persist a FAILED transaction
+  record for audit purposes.
+6.Use Postgres SERIALIZABLE isolation or explicit row locking — pick one,
+  document the trade-off in a code comment.
+
+Write Jest unit tests that spin up 50 concurrent calls to executeTransfer
+from a single account with insufficient combined balance, and assert:
+(a) the account balance never goes negative, (b) exactly the affordable
+number of transfers succeed, (c) SUM(ledger_entries) reconciles with
+accounts.balance_poisha afterward.
+
+
+, along side, firstly create a knowledge graph with a md file maybe, so that by reading it, any agent can understand whats going on in the project
+```
+
+---
+
+## Entry 005
+
+**Timestamp:** 2026-08-29
+
+```
+before moveing to the next prompt, kindly install the necessary requirements, like prisma, postgresql and other things , you can use brew, i have that installed. and connect all of them. append this to PROMPTS.md ofc
+```

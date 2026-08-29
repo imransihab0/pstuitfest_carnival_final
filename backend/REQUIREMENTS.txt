@@ -129,22 +129,46 @@ Secrets must never be committed.
  4. FIRST-RUN SETUP
 -------------------------------------------------------------------------------
 
+  OPTION A - Homebrew services (this is what the dev machine runs)
+  ---------------------------------------------------------------
+
+  brew install postgresql@16 redis
+  brew services start postgresql@16
+  brew services start redis
+
+  # One-time role + database. The Homebrew cluster trusts local connections,
+  # so this runs without a password prompt.
+  export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
+  psql -d postgres -c "CREATE ROLE carnival WITH LOGIN PASSWORD 'carnival_dev_password' CREATEDB;"
+  createdb -O carnival carnival
+
+  cd backend
+  cp .env.example .env          # defaults already point at 127.0.0.1
+  npm ci
+  npm run db:setup              # prisma generate + migrate deploy + seed
+  npm run start:dev
+
+  OPTION B - Docker Compose
+  -------------------------
+
   # From the repository root - starts postgres, redis and the api
   docker compose up --build
 
-  # Or, running the API on the host against containerised dependencies:
+  # Or, API on the host against containerised dependencies:
   docker compose up -d postgres redis
-  cd backend
-  cp .env.example .env
-  npm ci
-  npm run prisma:generate
-  npm run start:dev
+  cd backend && cp .env.example .env && npm ci && npm run db:setup && npm run start:dev
+
+  Note: with Compose the API container reaches the database at host `postgres`;
+  from the host machine it is `localhost`. .env.example uses the host form.
 
   # Verify
   curl -s http://localhost:3000/health
 
-  # Quality gates - all four must pass
-  npm run typecheck && npm run lint && npm test && npm run test:e2e
+  # Quality gates - all of these must pass
+  npm run typecheck && npm run lint && npm run format:check
+  npm test              # unit,        no database needed
+  npm run test:e2e      # HTTP layer,  no database needed
+  npm run test:integration   # real PostgreSQL, booted in-process
 
   Expected: HTTP 200 and status "ok" with database and cache both "up".
   HTTP 503 means PostgreSQL is unreachable - the service cannot commit a
