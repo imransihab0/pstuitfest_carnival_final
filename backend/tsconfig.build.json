@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // TypeScript 6 requires rootDir to be explicit rather than inferred.
+    // Pinning it to ./src is what puts the entrypoint at dist/main.js — the
+    // path referenced by `start:prod` and by the Dockerfile CMD.
+    "rootDir": "./src"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts", "**/*.e2e-spec.ts"]
+}

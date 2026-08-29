@@ -1,0 +1,6 @@
+dist
+coverage
+node_modules
+generated
+src/generated
+*.md

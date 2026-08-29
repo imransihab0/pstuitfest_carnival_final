@@ -1,0 +1,172 @@
+===============================================================================
+ Money Movement Application - Backend Runtime Prerequisites
+ PSTU IT Carnival 2026
+===============================================================================
+
+This is the Node equivalent of a Python requirements.txt: it lists what must
+exist on the machine BEFORE the service can run, not the npm package list.
+
+  - Application dependencies are declared in `package.json` and pinned in
+    `package-lock.json`. Install them with `npm ci`.
+  - This file covers the runtime, the external services, and the environment
+    variables the process refuses to start without.
+
+Every variable below is validated at boot by `src/config/env.schema.ts`. A
+missing or malformed value aborts startup with an explicit error rather than
+failing later on a live request.
+
+
+-------------------------------------------------------------------------------
+ 1. RUNTIME
+-------------------------------------------------------------------------------
+
+Node.js            >= 20.11.0    (LTS; 22.x or 24.x recommended. Docker image
+                                 is node:24-alpine. Verified on Node 26.)
+                                 Required for the ES2023 target in
+                                 tsconfig.json and for native ESM.
+npm                >= 10.0.0     (ships with the Node versions above)
+
+TypeScript          ~6.0.3       Pinned to the 6.0.x line, not a preference -
+                                 it is the only line satisfying both:
+                                   @nestjs/schematics 12  needs >= 6.0.0
+                                   typescript-eslint 8.x  needs <  6.1.0
+                                 TypeScript 7 would silently disable type-aware
+                                 linting; TypeScript 5 will not install at all.
+                                 Do not widen this to ^6.0.3.
+
+
+ A note on module format
+ -----------------------
+ NestJS 12 is published as ESM-only. This package is therefore ESM
+ ("type": "module"), uses moduleResolution "nodenext", and relative imports
+ carry an explicit .js extension. This is not a stylistic choice - CommonJS
+ cannot import Nest 12 at all.
+
+ The same constraint applies to the generated Prisma client, which is why
+ prisma/schema.prisma sets moduleFormat = "esm" and importFileExtension = "js".
+ Without those, the generated client emits extensionless imports that fail to
+ resolve, and because the generated file carries @ts-nocheck the failure is
+ SILENT: PrismaClient degrades to an error type and every query in the codebase
+ becomes untyped with no compiler error. If DB calls ever stop being
+ type-checked, check those two generator options first.
+
+ Tests run on Vitest, which is what Nest 12 scaffolds with and what works
+ natively with ESM. There is no Jest configuration in this project.
+
+
+-------------------------------------------------------------------------------
+ 2. EXTERNAL SERVICES
+-------------------------------------------------------------------------------
+
+PostgreSQL         >= 14         16.x recommended (used by docker-compose).
+                                 System of record. Every balance, ledger entry
+                                 and idempotency key lives here. Chosen for real
+                                 ACID transactions, row-level locking and unique
+                                 constraints - the mechanisms the correctness
+                                 requirements in docs/REQUIREMENTS.md depend on.
+                                 Must NOT be swapped for a store without
+                                 transactional guarantees.
+
+Redis              >= 6          7.x recommended (used by docker-compose).
+                                 Cache, rate limiting, and pub/sub fan-out for
+                                 realtime notifications across API instances.
+                                 Explicitly NOT part of the money path: no
+                                 balance or ledger entry is ever authoritative
+                                 in Redis, and a total cache loss must not
+                                 change a single balance.
+
+Docker Engine      >= 24         Optional, but the supported path for bringing
+Docker Compose     >= v2         up postgres + redis + api locally.
+                                 See docker-compose.yml at the repository root.
+
+
+-------------------------------------------------------------------------------
+ 3. REQUIRED ENVIRONMENT VARIABLES
+-------------------------------------------------------------------------------
+
+Placeholder values shown. Copy `.env.example` to `.env` and edit.
+Secrets must never be committed.
+
+  NODE_ENV
+      One of: development | test | production
+      Default: development
+      Example: development
+
+  PORT
+      Integer, 1-65535. Port the HTTP server binds to.
+      Default: 3000
+      Example: 3000
+
+  API_PREFIX
+      Prefix applied to all routes except /health.
+      Default: api/v1
+      Example: api/v1
+
+  DATABASE_URL                                                      [REQUIRED]
+      PostgreSQL connection string. Must start with postgresql:// or
+      postgres://. Consumed by both the Prisma client and `prisma migrate`.
+      Example (host):    postgresql://carnival:CHANGE_ME@localhost:5432/carnival?schema=public
+      Example (compose): postgresql://carnival:CHANGE_ME@postgres:5432/carnival?schema=public
+
+  REDIS_URL                                                         [REQUIRED]
+      Redis connection string. Must start with redis:// or rediss://.
+      Example (host):    redis://localhost:6379
+      Example (compose): redis://redis:6379
+
+  CORS_ORIGIN
+      Comma-separated list of allowed browser origins, or * for all.
+      Use * in development only.
+      Default: *
+      Example: http://localhost:5173
+
+  LOG_LEVEL
+      One of: error | warn | log | debug | verbose
+      Default: log
+      Example: log
+
+
+-------------------------------------------------------------------------------
+ 4. FIRST-RUN SETUP
+-------------------------------------------------------------------------------
+
+  # From the repository root - starts postgres, redis and the api
+  docker compose up --build
+
+  # Or, running the API on the host against containerised dependencies:
+  docker compose up -d postgres redis
+  cd backend
+  cp .env.example .env
+  npm ci
+  npm run prisma:generate
+  npm run start:dev
+
+  # Verify
+  curl -s http://localhost:3000/health
+
+  # Quality gates - all four must pass
+  npm run typecheck && npm run lint && npm test && npm run test:e2e
+
+  Expected: HTTP 200 and status "ok" with database and cache both "up".
+  HTTP 503 means PostgreSQL is unreachable - the service cannot commit a
+  transfer, so it reports itself unfit for traffic.
+  Status "degraded" with HTTP 200 means Redis is down but money movement is
+  still correct.
+
+  Note: the process fails fast at boot if PostgreSQL or Redis cannot be
+  reached, so the 503 branch applies to a dependency that dies AFTER startup,
+  not to starting with no database at all.
+
+
+-------------------------------------------------------------------------------
+ 5. NOT YET REQUIRED
+-------------------------------------------------------------------------------
+
+Listed so the deployment target is known ahead of time. These become required
+as the corresponding features land:
+
+  JWT_SECRET / JWT_EXPIRES_IN        authentication (FR-E)
+  RATE_LIMIT_WINDOW_MS               rate limiting (NFR-F)
+  RATE_LIMIT_MAX_REQUESTS
+  SIGNUP_BONUS_MINOR_UNITS           seeded registration balance (FR-A),
+                                     10000000 = BDT 100,000.00 in poisha
+  MAX_TRANSFER_MINOR_UNITS           per-transaction ceiling (FR-B)

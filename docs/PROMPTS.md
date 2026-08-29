@@ -45,3 +45,25 @@ This repo already contains some preliminary docs. Before writing any code:
 From this point forward, append every subsequent prompt I give you to
 PROMPTS.md as a new numbered entry before acting on it.
 ```
+
+---
+
+## Entry 002
+
+**Timestamp:** 2026-08-29
+
+```
+Append this prompt to /docs/PROMPTS.md as the next entry, then proceed.
+
+Scaffold a /backend service: NestJS + TypeScript, Prisma as the ORM,
+targeting PostgreSQL. Enforce a layered architecture — Controllers, Services
+(domain logic, no direct DB access), Repositories (only place Prisma is
+invoked). Add ESLint + Prettier with strict TypeScript config
+(noImplicitAny, strictNullChecks). Add a /backend/requirements.txt-style
+manifest — since this is Node, generate it as /backend/REQUIREMENTS.txt
+listing runtime prerequisites (Node version, PostgreSQL version, Redis
+version, required env vars with placeholder values) rather than a Python
+package list. Add a docker-compose.yml at repo root wiring up api + postgres
++ redis. Implement only a GET /health endpoint for now. Do not implement
+business logic yet.
+```

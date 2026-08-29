@@ -1,0 +1,16 @@
+node_modules
+dist
+coverage
+# Always regenerated inside the build so the client matches the schema.
+src/generated
+.env
+.env.local
+.env.*.local
+*.log
+.git
+.gitignore
+.vscode
+.idea
+test
+**/*.spec.ts
+**/*.e2e-spec.ts

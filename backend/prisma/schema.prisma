@@ -1,0 +1,49 @@
+// Money Movement Application — Prisma schema
+//
+// Deliberately empty of models at this stage. The scaffold commit sets up the
+// datasource, the generator and the client wiring only; the domain schema
+// (users, accounts, the append-only ledger, money requests, idempotency keys)
+// lands in the next step, together with the constraints that make the
+// correctness requirements in docs/REQUIREMENTS.md enforceable by the database
+// rather than by application code.
+//
+// Two schema-level commitments recorded here so they are not forgotten when the
+// models are written:
+//
+//   NFR-C  Money is stored exclusively as BigInt (Postgres BIGINT) in the minor
+//          unit — poisha, 1/100 BDT. No Float, no Decimal-by-convention, no
+//          money in a string column.
+//
+//   NFR-A  Balance columns carry a CHECK (balance >= 0) database constraint and
+//          are only ever mutated by conditional UPDATEs, so a logic bug cannot
+//          persist a negative balance. Idempotency keys carry a UNIQUE
+//          constraint — the constraint violation *is* the deduplication
+//          mechanism (NFR-B).
+
+// Prisma 7 note: `datasource.url` is no longer permitted in the schema.
+// The migration connection string now lives in `prisma.config.ts`, and the
+// runtime connection is supplied by a driver adapter passed to the
+// PrismaClient constructor (see src/infrastructure/prisma/prisma.service.ts).
+// That split is useful here rather than merely mandatory: it puts the
+// connection pool under our direct control, which matters once concurrent
+// transfers start contending for connections.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+
+  // This package is ESM (NestJS 12 is ESM-only), and TypeScript's `nodenext`
+  // resolution requires explicit file extensions on relative imports. Without
+  // these two settings the generated client emits extensionless imports, every
+  // one of them fails to resolve, and — because the generated file carries
+  // `@ts-nocheck` — the failure is silent: `PrismaClient` degrades to an error
+  // type and every query in the codebase becomes untyped without a single
+  // compiler error. For a service whose correctness argument rests on the
+  // database schema, that is the worst possible failure mode.
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}

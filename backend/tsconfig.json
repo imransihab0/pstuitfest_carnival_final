@@ -1,0 +1,58 @@
+{
+  "compilerOptions": {
+    /* NestJS 12 ships as ESM-only, so this package is ESM
+     * (`"type": "module"` in package.json) and relative imports carry an
+     * explicit `.js` extension. `nodenext` is what Nest 12's own scaffold uses;
+     * the legacy `node10` resolution is deprecated in TypeScript 6. */
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "resolvePackageJsonExports": true,
+    "target": "ES2023",
+    "lib": ["ES2023"],
+
+    "declaration": true,
+    "removeComments": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "incremental": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+
+    /* Strictness.
+     * `strict` implies noImplicitAny and strictNullChecks; both are also listed
+     * explicitly because they are named build requirements and must stay on even
+     * if `strict` is ever relaxed. The remaining flags close the gaps `strict`
+     * leaves open — several of which are exactly the ones that hide bugs in a
+     * money-handling codebase. */
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictBindCallApply": true,
+    "strictFunctionTypes": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
+
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "types": ["vitest/globals", "node"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*", "test/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

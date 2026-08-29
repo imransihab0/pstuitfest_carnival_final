@@ -1,0 +1,88 @@
+# Local development stack for the Money Movement Application.
+#
+#   docker compose up --build          # api + postgres + redis
+#   docker compose up -d postgres redis # dependencies only, API on the host
+#
+# Credentials here are development-only placeholders and are safe to commit.
+# Nothing in this file is intended for production deployment.
+
+name: pstu-carnival
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: carnival-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: carnival
+      POSTGRES_PASSWORD: carnival_dev_password
+      POSTGRES_DB: carnival
+      # Speeds up index-heavy local work; irrelevant to correctness.
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    ports:
+      # Exposed so the API can also be run on the host against this database.
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` alone returns true before the DB accepts real connections
+      # during init; the -U/-d flags make it a genuine readiness signal.
+      test: ['CMD-SHELL', 'pg_isready -U carnival -d carnival']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: carnival-redis
+    restart: unless-stopped
+    # appendonly keeps dev data across restarts. Redis holds no authoritative
+    # money state either way — losing it costs cache and notification fan-out,
+    # never a balance.
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: carnival-api
+    restart: unless-stopped
+    depends_on:
+      # Wait for real readiness, not just container start — otherwise the API
+      # boots, fails to connect, and dies before Postgres finishes initialising.
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      API_PREFIX: api/v1
+      # Service names, not localhost: these resolve on the compose network.
+      DATABASE_URL: postgresql://carnival:carnival_dev_password@postgres:5432/carnival?schema=public
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGIN: 'http://localhost:5173'
+      LOG_LEVEL: log
+    ports:
+      - '3000:3000'
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:3000/health']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  postgres_data:
+  redis_data:
