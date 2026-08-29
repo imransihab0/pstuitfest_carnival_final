@@ -7,6 +7,8 @@ import type { MoneyRequest, RequestsResponse } from '../lib/api/walletTypes'
 import { formatPoisha } from '../lib/money'
 import { queryKeys } from '../lib/query'
 
+import { Link } from 'react-router-dom'
+
 type RequestAction = { request: MoneyRequest; action: 'accept' | 'reject'; idempotencyKey?: string }
 
 export function RequestsScreen() {
@@ -59,7 +61,10 @@ export function RequestsScreen() {
   return (
     <section aria-labelledby="requests-title">
       <p className="eyebrow">Money requests</p>
-      <h1 id="requests-title" className="page-title">Requests inbox</h1>
+      <div className="flex items-center justify-between">
+        <h1 id="requests-title" className="page-title">Requests inbox</h1>
+        <Link to="/requests/new" className="button-primary">Request money</Link>
+      </div>
       <div className="mt-8 flex border-b border-line" role="tablist" aria-label="Request direction">
         {(['incoming', 'outgoing'] as const).map((value) => (
           <button key={value} role="tab" aria-selected={tab === value} className={`min-h-12 border-b-2 px-5 text-sm font-semibold capitalize ${tab === value ? 'border-ink text-ink' : 'border-transparent text-muted'}`} onClick={() => setTab(value)}>{value}</button>

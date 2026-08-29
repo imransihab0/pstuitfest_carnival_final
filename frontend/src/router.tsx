@@ -9,6 +9,7 @@ import { RegisterScreen } from './screens/auth/RegisterScreen'
 import { DashboardScreen } from './screens/DashboardScreen'
 import { SendMoneyScreen } from './screens/SendMoneyScreen'
 import { RequestsScreen } from './screens/RequestsScreen'
+import { RequestMoneyScreen } from './screens/RequestMoneyScreen'
 import { HistoryScreen } from './screens/HistoryScreen'
 import { SplitsScreen } from './screens/SplitsScreen'
 
@@ -39,6 +40,7 @@ export const router = createBrowserRouter([
               { path: 'send', element: <SendMoneyScreen /> },
               { path: 'requests', element: <RequestsScreen /> },
               { path: 'splits', element: <SplitsScreen /> },
+              { path: 'requests/new', element: <RequestMoneyScreen /> },
               { path: 'history', element: <HistoryScreen /> },
             ],
           },
