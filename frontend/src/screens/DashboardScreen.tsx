@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { ActivityList } from '../components/wallet/ActivityList'
+import { AnimatedBalance } from '../components/wallet/AnimatedBalance'
 import { ErrorState, LoadingState } from '../components/wallet/QueryState'
 import { walletApi } from '../lib/api/walletApi'
-import { formatPoisha } from '../lib/money'
 import { queryKeys } from '../lib/query'
 
 export function DashboardScreen() {
@@ -16,7 +16,9 @@ export function DashboardScreen() {
     <div>
       <section className="border-b border-line pb-10" aria-labelledby="balance-title">
         <p id="balance-title" className="eyebrow">Available balance</p>
-        <p className="money mt-4 text-4xl font-semibold tracking-tight text-ink sm:text-6xl">{formatPoisha(query.data.balancePoisha)}</p>
+        <p className="money mt-4 text-4xl font-semibold tracking-tight text-ink sm:text-6xl">
+          <AnimatedBalance balancePoisha={query.data.balancePoisha} />
+        </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <Link className="button-primary" to="/send">Send money</Link>
           <Link className="button-secondary" to="/requests">View requests</Link>

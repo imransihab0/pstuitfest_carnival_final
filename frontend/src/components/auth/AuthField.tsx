@@ -16,7 +16,7 @@ export function AuthField({ label, error, hint, id, ...props }: AuthFieldProps) 
         id={id}
         aria-invalid={Boolean(error)}
         aria-describedby={describedBy}
-        className={`min-h-12 w-full rounded-none border bg-canvas px-4 text-base text-ink outline-none transition-colors placeholder:text-muted focus:border-ink focus:ring-1 focus:ring-ink ${error ? 'border-danger' : 'border-line'}`}
+        className={`min-h-12 w-full rounded-none border bg-canvas px-4 text-base text-ink outline-none placeholder:text-muted focus:border-ink focus:ring-1 focus:ring-ink ${error ? 'border-danger' : 'border-line'}`}
         {...props}
       />
       {hint && <p id={`${id}-hint`} className="mt-2 text-xs leading-5 text-muted">{hint}</p>}

@@ -83,3 +83,16 @@ Want me to fix it? Smallest useful change:
 That gets register + login working end-to-end. The dashboard/transfer screens will still 404 — those five endpoints don't exist yet.
 dont change backend just fix the frontend based on backend
 ```
+
+---
+
+## Entry 005
+
+**Timestamp:** 2026-08-29
+
+```
+Integrate the Socket.IO client from Prompt 7: on receiving a transfer
+notification, update the balance and activity feed live without a page
+refresh, with a subtle balance count-up animation as the only motion
+element in the UI per our black-and-white design direction.
+```
