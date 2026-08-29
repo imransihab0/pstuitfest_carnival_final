@@ -1,12 +1,15 @@
 import { createBrowserRouter } from 'react-router-dom'
 import { AppShell } from './components/layout/AppShell'
-import { ShellIndex } from './components/layout/ShellIndex'
 import { RouteError } from './components/layout/RouteError'
 import { AuthLayout } from './components/layout/AuthLayout'
 import { GuestRoute } from './components/auth/GuestRoute'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { LoginScreen } from './screens/auth/LoginScreen'
 import { RegisterScreen } from './screens/auth/RegisterScreen'
+import { DashboardScreen } from './screens/DashboardScreen'
+import { SendMoneyScreen } from './screens/SendMoneyScreen'
+import { RequestsScreen } from './screens/RequestsScreen'
+import { HistoryScreen } from './screens/HistoryScreen'
 
 export const router = createBrowserRouter([
   {
@@ -30,7 +33,12 @@ export const router = createBrowserRouter([
         children: [
           {
             element: <AppShell />,
-            children: [{ index: true, element: <ShellIndex /> }],
+            children: [
+              { index: true, element: <DashboardScreen /> },
+              { path: 'send', element: <SendMoneyScreen /> },
+              { path: 'requests', element: <RequestsScreen /> },
+              { path: 'history', element: <HistoryScreen /> },
+            ],
           },
         ],
       },

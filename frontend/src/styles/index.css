@@ -54,6 +54,30 @@
   .error-banner {
     @apply mt-6 border-l-4 border-danger bg-canvas py-3 pl-4 text-sm leading-6 text-danger;
   }
+
+  .page-title {
+    @apply mt-3 text-balance text-3xl font-semibold tracking-tight text-ink sm:text-4xl;
+  }
+
+  .page-intro {
+    @apply mt-4 max-w-prose text-base leading-7 text-muted;
+  }
+
+  .field-label {
+    @apply mb-2 block text-sm font-medium text-charcoal;
+  }
+
+  .field-input {
+    @apply min-h-12 w-full rounded-none border border-line bg-canvas px-4 text-base text-ink outline-none placeholder:text-muted focus:border-ink focus:ring-1 focus:ring-ink;
+  }
+
+  .field-help {
+    @apply mt-2 text-xs leading-5 text-muted;
+  }
+
+  .empty-state {
+    @apply my-6 border border-dashed border-line px-5 py-10 text-center text-sm text-muted;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
