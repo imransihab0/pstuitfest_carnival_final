@@ -183,6 +183,35 @@ their current balance exactly.
 **Acceptance:** with the socket connection deliberately severed, every feature still
 works correctly via REST; on reconnect the UI converges to the correct state.
 
+### FR-G — Split payments (added beyond the original brief)
+
+| | |
+| --- | --- |
+| **Maps to** | Not in `srs_tables.md` — a novel addition, logged here per the doc hierarchy in `docs/KNOWLEDGE_GRAPH.md` §1 rather than silently added to the code |
+| **Priority** | Nice to Have |
+
+- A user creates a **bill split**: a total amount, an optional description, and
+  a list of participants each owing a fixed share. Creating a split moves no
+  money — a claim, not a transfer, exactly like FR-C. The shares must sum to
+  the declared total exactly; a mismatch is rejected before any row is
+  written.
+- Each participant pays their own share independently, whenever they choose.
+  Paying a share **executes a fully validated transfer under FR-B** — the same
+  balance check, the same atomicity, the same ledger entries as a direct send.
+  A split share is never a shortcut around any transfer rule.
+- Once every share of a split has been paid, the split is automatically marked
+  **settled**. This is a cross-row invariant (no CHECK constraint can express
+  "every sibling row is PAID"), so it is enforced by locking the parent split
+  row for the duration of each share payment — see `docs/KNOWLEDGE_GRAPH.md`
+  §5 (I8, I9) and §6 for why.
+
+**Acceptance:** creating a split with shares that do not sum to the total is
+rejected. Two participants paying the last two outstanding shares of the same
+split at the same instant results in the split settling exactly once, not
+zero times and not twice — proven in
+`backend/test/bill-split.concurrency.integration-spec.ts` against a real
+PostgreSQL, not asserted against a mock.
+
 ---
 
 ## 3. Non-Functional Requirements

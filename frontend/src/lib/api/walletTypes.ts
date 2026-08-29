@@ -33,3 +33,46 @@ export type MoneyRequest = {
 
 export type RequestsResponse = { incoming: MoneyRequest[]; outgoing: MoneyRequest[] }
 export type TransactionsPage = { items: Transaction[]; nextCursor: string | null }
+
+export type BillSplitShareStatus = 'PENDING' | 'PAID' | 'CANCELLED'
+export type BillSplitStatus = 'OPEN' | 'SETTLED' | 'CANCELLED'
+
+export type BillSplitShare = {
+  id: string
+  amountPoisha: string
+  status: BillSplitShareStatus
+  createdAt: string
+  paidAt: string | null
+  payer: UserResult
+}
+
+export type BillSplit = {
+  id: string
+  reference: string
+  totalAmountPoisha: string
+  description: string | null
+  status: BillSplitStatus
+  createdAt: string
+  settledAt: string | null
+  creator: UserResult
+  shares: BillSplitShare[]
+}
+
+export type OwedShare = {
+  id: string
+  amountPoisha: string
+  status: BillSplitShareStatus
+  createdAt: string
+  paidAt: string | null
+  split: {
+    id: string
+    reference: string
+    totalAmountPoisha: string
+    description: string | null
+    status: BillSplitStatus
+    createdAt: string
+    creator: UserResult
+  }
+}
+
+export type BillSplitsResponse = { owned: BillSplit[]; owedByMe: OwedShare[] }

@@ -173,6 +173,21 @@ enum MoneyRequestStatus {
   EXPIRED
 }
 
+/// CANCELLED is reserved, matching MoneyRequestStatus.EXPIRED above: modelled
+/// now so the shape never has to change, exposed by no endpoint yet.
+enum BillSplitStatus {
+  OPEN
+  SETTLED
+  CANCELLED
+}
+
+/// CANCELLED is reserved for the same reason as BillSplitStatus.CANCELLED.
+enum BillSplitShareStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
 /// IN_PROGRESS is written *before* the work starts, so a concurrent duplicate
 /// collides with the unique constraint instead of racing it (NFR-B).
 enum IdempotencyState {
@@ -235,6 +250,8 @@ model User {
   idempotencyKeys   IdempotencyKey[]
   notifications     Notification[]
   sessions          Session[]
+  billSplitsCreated BillSplit[]      @relation("BillSplitCreator")
+  billSplitShares   BillSplitShare[] @relation("BillSplitPayer")
 
   // Case-insensitive lookup for login and user search (FR-05) is served by
   // functional indexes on lower(email) / lower(username), added in the
@@ -335,6 +352,9 @@ model Transaction {
   /// Back-relation. Present only when this transfer settled a money request;
   /// the owning side is MoneyRequest.settledTransactionId.
   settledMoneyRequest MoneyRequest?
+  /// Back-relation. Present only when this transfer settled a bill-split
+  /// share; the owning side is BillSplitShare.settledTransactionId.
+  settledBillSplitShare BillSplitShare?
 
   // Keyset pagination for transaction history (FR-D). `id` is the tiebreaker
   // so pages are stable when two rows share a timestamp.
@@ -454,6 +474,94 @@ model MoneyRequest {
   @@index([requesteeId, status, createdAt(sort: Desc)])
   @@index([requesterId, status, createdAt(sort: Desc)])
   @@map("money_requests")
+}
+
+/// A shared bill: one creator collects a fixed total back from N participants,
+/// each owing a fixed share ("split ৳1,000 three ways"). Structurally this is
+/// MoneyRequest fanned out to many payers instead of one — creating a split
+/// moves no money, and paying a share runs through the *same* transfer path
+/// (same balance check, same atomicity, same ledger entries) as any other
+/// transfer. A share is never a shortcut around a transfer rule, exactly per
+/// the MoneyRequest precedent above.
+///
+/// `totalAmountPoisha` is the sum the creator expects to collect and must equal
+/// SUM(shares.amount_poisha) at creation time. That sum is a cross-row
+/// invariant, so — like the append-only ledger rule — it cannot be a CHECK
+/// constraint on this table; it is enforced once, in the same database
+/// transaction that inserts every share (BillSplitRepository.createSplit),
+/// so a split can never exist half-described.
+///
+/// DATABASE CONSTRAINTS
+///   chk_bill_splits_amount_positive   total_amount_poisha > 0.
+///   chk_bill_splits_settlement_shape  SETTLED requires settled_at; OPEN must
+///                                     not have one.
+model BillSplit {
+  id        String @id @default(uuid()) @db.Uuid
+  reference String @unique @db.VarChar(32)
+
+  /// Who paid the original bill and is owed the shares back.
+  creatorId String @map("creator_id") @db.Uuid
+
+  /// Total to be collected across all shares (poisha). See the model comment
+  /// on why this can't be a CHECK constraint against the child rows.
+  totalAmountPoisha BigInt  @map("total_amount_poisha")
+  description       String? @db.VarChar(255)
+  status            BillSplitStatus @default(OPEN)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Set exactly when every share transitions to PAID.
+  settledAt DateTime? @map("settled_at") @db.Timestamptz(6)
+
+  creator User             @relation("BillSplitCreator", fields: [creatorId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  shares  BillSplitShare[]
+
+  // "Splits I created" — the owner's view (mirrors money_requests' requester index).
+  @@index([creatorId, status, createdAt(sort: Desc)])
+  @@map("bill_splits")
+}
+
+/// One participant's owed portion of a BillSplit — a claim, not a transfer, in
+/// exactly the sense MoneyRequest is. Paying a share and settling the parent
+/// BillSplit (once every sibling share is PAID) commit together or not at all,
+/// in one database transaction — the same "transition and transfer commit
+/// together" discipline FR-C requires of MoneyRequest, applied per-share and
+/// then again at the split level.
+///
+/// DATABASE CONSTRAINTS
+///   chk_bill_split_shares_amount_positive   amount_poisha > 0.
+///   chk_bill_split_shares_settlement_shape  PAID requires
+///                                           settled_transaction_id and
+///                                           paid_at; PENDING must have
+///                                           neither.
+///   uq_bill_split_shares_split_payer        one share per participant per
+///                                           split — you cannot be billed
+///                                           twice for the same bill.
+model BillSplitShare {
+  id          String @id @default(uuid()) @db.Uuid
+  billSplitId String @map("bill_split_id") @db.Uuid
+  /// Who owes this portion.
+  payerId     String @map("payer_id") @db.Uuid
+
+  amountPoisha BigInt               @map("amount_poisha")
+  status       BillSplitShareStatus @default(PENDING)
+
+  /// Set exactly when the share is paid. Unique: one transfer settles at most
+  /// one share, mirroring MoneyRequest.settledTransactionId.
+  settledTransactionId String? @unique @map("settled_transaction_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  paidAt    DateTime? @map("paid_at") @db.Timestamptz(6)
+
+  billSplit          BillSplit    @relation(fields: [billSplitId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  payer              User         @relation("BillSplitPayer", fields: [payerId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  settledTransaction Transaction? @relation(fields: [settledTransactionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  // A participant sees "bills I owe" through this index; the split is reached
+  // via billSplitId for "all shares of this bill".
+  @@unique([billSplitId, payerId], map: "uq_bill_split_shares_split_payer")
+  @@index([payerId, status, createdAt(sort: Desc)])
+  @@index([billSplitId])
+  @@map("bill_split_shares")
 }
 
 /// Deduplication record for retried mutating requests (NFR-B).

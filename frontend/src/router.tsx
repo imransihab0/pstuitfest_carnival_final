@@ -10,6 +10,7 @@ import { DashboardScreen } from './screens/DashboardScreen'
 import { SendMoneyScreen } from './screens/SendMoneyScreen'
 import { RequestsScreen } from './screens/RequestsScreen'
 import { HistoryScreen } from './screens/HistoryScreen'
+import { SplitsScreen } from './screens/SplitsScreen'
 
 export const router = createBrowserRouter([
   {
@@ -37,6 +38,7 @@ export const router = createBrowserRouter([
               { index: true, element: <DashboardScreen /> },
               { path: 'send', element: <SendMoneyScreen /> },
               { path: 'requests', element: <RequestsScreen /> },
+              { path: 'splits', element: <SplitsScreen /> },
               { path: 'history', element: <HistoryScreen /> },
             ],
           },

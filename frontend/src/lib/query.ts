@@ -11,4 +11,5 @@ export const queryKeys = {
   dashboard: ['dashboard'] as const,
   requests: ['money-requests'] as const,
   transactions: (filters: object) => ['transactions', filters] as const,
+  billSplits: ['bill-splits'] as const,
 }

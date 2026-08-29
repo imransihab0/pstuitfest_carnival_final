@@ -70,6 +70,7 @@ a document above the layer you are editing; if you must, update it and say so.
 | Know runtime prerequisites and env vars | `backend/REQUIREMENTS.txt` |
 | Understand layering enforcement | `backend/eslint.config.mjs` |
 | Add a feature module | copy the shape of `backend/src/modules/health/` |
+| Understand bill splits (shared payments) | `backend/src/modules/bill-splits/`, schema.prisma's `BillSplit`/`BillSplitShare` models |
 | Run the stack | `docker-compose.yml` (repo root) |
 
 ---
@@ -109,6 +110,8 @@ for the caller is the service's job.
 erDiagram
   User ||--o| Account : owns
   User ||--o{ MoneyRequest : requests
+  User ||--o{ BillSplit : creates
+  User ||--o{ BillSplitShare : owes
   User ||--o{ IdempotencyKey : holds
   User ||--o{ Notification : receives
   Account ||--o{ Transaction : sends
@@ -116,10 +119,12 @@ erDiagram
   Account ||--o{ LedgerEntry : "is debited/credited"
   Transaction ||--o{ LedgerEntry : "has exactly 2"
   Transaction ||--o| MoneyRequest : settles
+  Transaction ||--o| BillSplitShare : settles
   Transaction ||--o| IdempotencyKey : "produced by"
+  BillSplit ||--o{ BillSplitShare : "fans out to"
 ```
 
-### The seven tables
+### The nine tables
 
 | Table | Role | Mutability |
 | --- | --- | --- |
@@ -128,6 +133,8 @@ erDiagram
 | `transactions` | business event, one per attempt (success *or* failure) | insert; status set at terminal state |
 | `ledger_entries` | **double-entry, append-only** | **INSERT ONLY — trigger blocks UPDATE/DELETE/TRUNCATE** |
 | `money_requests` | a claim for payment | status transitions only |
+| `bill_splits` | a shared bill, fanned out to N participants | status transitions only |
+| `bill_split_shares` | one participant's owed portion of a split | status transitions only |
 | `idempotency_keys` | retry deduplication | ephemeral, TTL, cascades |
 | `notifications` | user-facing feed | derived, cascades |
 
@@ -160,6 +167,8 @@ These are the properties the system is judged on. Each is checkable.
 | **I5** | A ledger row, once written, never changes | `trg_ledger_entries_immutable` | attempt an `UPDATE` → errcode `23001` |
 | **I6** | One retried request moves money at most once | `UNIQUE (user_id, key)` | replay a key, assert one transaction |
 | **I7** | Money is integer poisha everywhere | `BIGINT` columns + ESLint bans | `grep` for `parseFloat` / `Math.round` |
+| **I8** | A `BillSplit`'s `total_amount_poisha` always equals `SUM(shares.amount_poisha)` | enforced once, at creation, inside `BillSplitRepository.createSplit`'s transaction (no cross-row CHECK is possible) | `SELECT bs.id FROM bill_splits bs JOIN bill_split_shares s ON s.bill_split_id = bs.id GROUP BY bs.id, bs.total_amount_poisha HAVING bs.total_amount_poisha <> SUM(s.amount_poisha)` → must be empty |
+| **I9** | A `BillSplit` is `SETTLED` iff every one of its shares is `PAID` | `SELECT ... FOR UPDATE` on the parent `bill_splits` row inside `payShare`, serializing the "any siblings still PENDING?" check — see the decision log | `SELECT bs.id FROM bill_splits bs WHERE bs.status = 'SETTLED' AND EXISTS (SELECT 1 FROM bill_split_shares s WHERE s.bill_split_id = bs.id AND s.status <> 'PAID')` → must be empty |
 
 > **If you change money-handling code, re-check I1–I4.** They are cheap to
 > verify and they are the difference between a working demo and a silent
@@ -187,6 +196,9 @@ Decisions already made, with the reasoning. **Do not silently reverse these.**
 | **Prisma generator: `moduleFormat=esm`, `importFileExtension=js`** | otherwise the generated client emits unresolvable imports and — because it is `@ts-nocheck` — **every DB call becomes untyped with zero compiler errors** | silent, total loss of DB type safety |
 | **Vitest, not Jest** | Nest 12 ships with it; ESM-native | ESM test config pain |
 | **Prisma 7 driver adapter + `prisma.config.ts`** | Prisma 7 removed `datasource.url` from the schema | migrations stop resolving |
+| **A settlement-shape CHECK constraint forces its status flip and its foreign-key attachment into one UPDATE, never two** | Postgres evaluates a (non-deferrable) CHECK at the end of the *statement* that touched the row, not at commit — an UPDATE that sets `status = 'ACCEPTED'`/`'PAID'` alone, before the settling transaction exists to attach, is rejected outright with SQLSTATE 23514, even though the surrounding application transaction would have fixed it up in its very next statement | see §7.10 — this was shipped broken (`acceptMoneyRequest`) until the bill-splits integration test caught the identical shape and both were fixed together |
+| **`BillSplitRepository.payShare` takes `SELECT ... FOR UPDATE` on the parent `bill_splits` row before touching any share** | "has every sibling share been paid?" is an aggregate over *other* rows with no single-row conditional-UPDATE equivalent; under READ COMMITTED, two payers settling the last two shares at once could each check against a snapshot that predates the other's still-uncommitted PAID — locking the parent row first serializes exactly that pair | I9 becomes racy: a split can finish fully paid while stuck at `OPEN` |
+| **`WalletRepository.acceptMoneyRequest` takes `SELECT ... FOR UPDATE` on the request row, not a conditional UPDATE** | needed to fix the CHECK-timing bug above — the claim now happens *before* the settling transaction exists, so it can no longer double as the state-flip; the lock (not a WHERE-clause guard) is what makes a double-accept safe now | double-clicking "Accept" could accept twice, or crash with 23514 |
 
 ---
 
@@ -233,6 +245,26 @@ Decisions already made, with the reasoning. **Do not silently reverse these.**
    'SELF_TRANSFER'` already records what was attempted. An earlier version did
    not do this and the audit write failed silently.
 
+10. **Never flip a row to a "settled" status in one statement and attach the
+    settling transaction id in a later one, even in the same database
+    transaction.** A CHECK constraint like
+    `chk_money_requests_settlement_shape` or
+    `chk_bill_split_shares_settlement_shape` is evaluated by Postgres at the
+    end of the *statement* that touched the row — not deferred to commit the
+    way a foreign key can be. `UPDATE ... SET status = 'ACCEPTED'` with
+    `settled_transaction_id` still NULL fails outright with SQLSTATE 23514,
+    full stop; there is no next statement in the transaction that can fix it,
+    because that first statement never succeeded. `WalletRepository
+    .acceptMoneyRequest` shipped with exactly this bug — every accept crashed
+    against real Postgres — undetected because the only coverage was a unit
+    test against a mocked repository, which cannot see a database constraint.
+    It surfaced when `BillSplitRepository.payShare` hit the identical shape
+    and an integration test against a real database (not a mock) caught it;
+    both were fixed the same way: claim the row with a plain `SELECT` (or
+    `SELECT ... FOR UPDATE` where something else needs the lock), do all the
+    money movement, then perform exactly one `UPDATE` that sets the status,
+    the timestamp, and the settling id together.
+
 ---
 
 ## 8. Current state
@@ -247,11 +279,12 @@ Decisions already made, with the reasoning. **Do not silently reverse these.**
 | Schema, migration, constraints, triggers, views | ✅ complete, **verified on real PostgreSQL 18** |
 | Seed (5 demo users @ ৳100,000, idempotent) | ✅ complete, verified |
 | **Transfer service + concurrency tests** | ✅ complete — see §9 |
-| Auth (register / login / JWT) | ❌ not built |
-| Money requests (create/accept/reject) | ❌ not built (schema ready) |
-| Transaction history endpoint | ❌ not built (schema + indexes ready) |
-| Realtime notifications (socket) | ❌ not built (schema ready) |
-| Frontend (React 18 + Vite + Tailwind + React Query) | ⚠️ builds, but **NOT wired to the backend** — see §12 |
+| Auth (register / login / JWT / PIN / refresh rotation) | ✅ complete |
+| Money requests (create/accept/reject) | ✅ complete — accept had a shipped bug against real Postgres, fixed; see §7.10 |
+| Bill splits (shared payments: create, list, pay a share, auto-settle) | ✅ complete — `backend/src/modules/bill-splits/`, proven against real Postgres including the settlement race in §7.10/I9 |
+| Transaction history endpoint | ✅ complete |
+| Realtime notifications (socket) | ❌ not built (schema ready; `Notification` table exists, no WebSocket gateway) |
+| Frontend (React 18 + Vite + Tailwind + React Query) | ✅ wired to the backend (see §12 — the mismatches listed there have since been fixed) |
 
 **Demo credentials:** any seeded user (`alice@example.com` … `erin@example.com`),
 password `Carnival#2026`.
@@ -391,11 +424,16 @@ docker compose up --build
 
 ---
 
-## 12. Frontend ↔ backend wiring status
+## 12. Frontend ↔ backend wiring status (historical — resolved)
 
-**The frontend compiles and the backend runs, but they do not talk to each
-other yet.** Verified by probing the running API, not by reading code. Every row
-below is a measured result.
+**As of this writing the frontend and backend are wired and talking.** The
+table below is kept as a record of what was wrong and why, not a current
+status report — every mismatch listed here has since been fixed on the
+frontend side (base path, request/response shapes, PIN length, refresh
+transport). Verified by reading `client.ts`, `walletApi.ts`, and
+`AuthProvider.tsx` directly, not by re-probing the API. If you're touching
+auth or the API client, this table is still useful context for *why* the
+current shapes are what they are.
 
 ### Blocking mismatches
 

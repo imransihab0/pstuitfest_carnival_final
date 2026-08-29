@@ -24,6 +24,7 @@ export function AppShell() {
             ['/', 'Dashboard'],
             ['/send', 'Send money'],
             ['/requests', 'Requests'],
+            ['/splits', 'Splits'],
             ['/history', 'History'],
           ].map(([to, label]) => (
             <NavLink

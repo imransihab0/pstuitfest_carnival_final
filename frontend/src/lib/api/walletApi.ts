@@ -1,5 +1,13 @@
 import { apiClient } from './client'
-import type { AccountSummary, MoneyRequest, RequestsResponse, TransactionsPage, UserResult } from './walletTypes'
+import type {
+  AccountSummary,
+  BillSplit,
+  BillSplitsResponse,
+  MoneyRequest,
+  RequestsResponse,
+  TransactionsPage,
+  UserResult,
+} from './walletTypes'
 
 export const walletApi = {
   async dashboard() {
@@ -26,5 +34,26 @@ export const walletApi = {
   },
   async transactions(params: { cursor?: string; direction?: string; status?: string; from?: string; to?: string }) {
     return (await apiClient.get<TransactionsPage>('/transactions', { params: { ...params, limit: 20 } })).data
+  },
+  async billSplits() {
+    return (await apiClient.get<BillSplitsResponse>('/bill-splits')).data
+  },
+  async createBillSplit(input: {
+    totalAmountPoisha: string
+    description?: string
+    shares: { payerId: string; amountPoisha: string }[]
+  }) {
+    return (await apiClient.post<{ id: string; reference: string; status: string }>('/bill-splits', input)).data
+  },
+  async payBillSplitShare(splitId: string, pin: string) {
+    return (
+      await apiClient.post<{ reference: string; balancePoisha: string; splitSettled: boolean }>(
+        `/bill-splits/${splitId}/pay`,
+        { pin },
+      )
+    ).data
+  },
+  async billSplitDetail(splitId: string) {
+    return (await apiClient.get<BillSplit>(`/bill-splits/${splitId}`)).data
   },
 }

@@ -17,7 +17,7 @@ const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
  * `reference` column is UNIQUE, so a collision fails loudly rather than
  * overwriting anything.
  */
-export function generateReference(prefix: 'TXN' | 'REQ', length = 10): string {
+export function generateReference(prefix: 'TXN' | 'REQ' | 'SPL', length = 10): string {
   const bytes = randomBytes(length);
   let out = '';
   for (const byte of bytes) {

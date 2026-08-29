@@ -216,9 +216,15 @@ export class WalletRepository {
    * PENDING — so it could be accepted again. The `chk_money_requests_settlement_shape`
    * CHECK constraint enforces the same pairing at the database level.
    *
-   * The status guard (`WHERE status = 'PENDING'`) is what makes a double-click
-   * safe: the second attempt matches zero rows and aborts before any balance
-   * moves.
+   * The status guard is what makes a double-click safe: a `SELECT ... FOR
+   * UPDATE` on this row claims it exclusively for the rest of the
+   * transaction, so a concurrent second attempt blocks here until the first
+   * commits, then re-reads a status that is no longer PENDING and aborts
+   * before any balance moves.
+   *
+   * That `FOR UPDATE` is doing more than double-click safety, though — see
+   * the note on the closing UPDATE below for why this can't be a plain
+   * conditional UPDATE the way the transfer path's balance changes are.
    *
    * Balance rows are written in ascending account-UUID order, the same
    * discipline as the transfer path, so concurrent settlements cannot deadlock
@@ -234,18 +240,16 @@ export class WalletRepository {
       return await this.prisma.client.$transaction(
         async (tx): Promise<AcceptRequestOutcome> => {
           const claimed = await tx.$queryRaw<
-            { amount_poisha: string; requester_id: string; requestee_id: string }[]
+            { status: string; amount_poisha: string; requester_id: string; requestee_id: string }[]
           >`
-            UPDATE "money_requests"
-               SET "status" = 'ACCEPTED', "responded_at" = now()
-             WHERE "id" = ${requestId}::uuid
-               AND "requestee_id" = ${requesteeUserId}::uuid
-               AND "status" = 'PENDING'
-            RETURNING "amount_poisha"::text AS amount_poisha,
-                      "requester_id", "requestee_id"
+            SELECT "status"::text AS status, "amount_poisha"::text AS amount_poisha,
+                   "requester_id", "requestee_id"
+            FROM "money_requests"
+            WHERE "id" = ${requestId}::uuid AND "requestee_id" = ${requesteeUserId}::uuid
+            FOR UPDATE
           `;
           const request = claimed[0];
-          if (request === undefined) {
+          if (request?.status !== 'PENDING') {
             throw new SettlementAbort('NOT_PENDING');
           }
 
@@ -329,11 +333,23 @@ export class WalletRepository {
             ],
           });
 
-          // Links the request to the transfer that settled it. The CHECK
-          // constraint requires this for any ACCEPTED row.
+          // One statement, flipping status, responded_at, and
+          // settled_transaction_id together. This has to be one UPDATE, not
+          // the two it used to be (status first, settled_transaction_id
+          // after building the transaction): Postgres evaluates a CHECK
+          // constraint at the end of the statement that touched the row, not
+          // at commit. An UPDATE that set status = 'ACCEPTED' alone —
+          // settled_transaction_id still NULL — fails
+          // chk_money_requests_settlement_shape outright with SQLSTATE
+          // 23514, and there is no later statement in the same transaction
+          // that can retroactively fix a statement that already failed.
           await tx.moneyRequest.update({
             where: { id: requestId },
-            data: { settledTransactionId: transaction.id },
+            data: {
+              status: 'ACCEPTED',
+              respondedAt: new Date(),
+              settledTransactionId: transaction.id,
+            },
           });
 
           return { ok: true, reference, balancePoisha: payerAfter };

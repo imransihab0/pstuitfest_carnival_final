@@ -183,3 +183,15 @@ Output: module, guards, decorator, tests for reuse-detection and PIN-gate reject
 ```
 before we move to the further prompt, kindly check all the wiring with the front end, [append in the prompt md ]
 ```
+
+---
+
+## Entry 009
+
+**Timestamp:** 2026-08-29
+
+```
+okay, so one novel features that i am willing to add , that is, share a pay, like if a pay is created, then user can add share like addd people to give a share, for isntance, if a payment of 1000 tk is created, then a user, can add n people with ammount to pay their part, after paying entire ammount the payment is clear. i think the backend is anough scalbe to add this fastly, go on
+```
+
+(Preceded, same session, by a bug report — logged here for continuity though not itself a build instruction: a crash on `GET /transactions` when `direction`/`status`/`from`/`to` arrive as empty query strings rather than omitted, `PrismaClientValidationError: Provided Date object is invalid`; and a UX bug where the Send Money recipient dropdown stayed open after a user was selected. Both were fixed in `wallet.service.ts` and `SendMoneyScreen.tsx` before this entry.)
