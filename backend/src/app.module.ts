@@ -4,6 +4,7 @@ import { validateEnv } from './config/env.schema.js';
 import { PrismaModule } from './infrastructure/prisma/prisma.module.js';
 import { RedisModule } from './infrastructure/redis/redis.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { TransferModule } from './modules/transfers/transfer.module.js';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { HealthModule } from './modules/health/health.module.js';
 
     // Feature modules.
     HealthModule,
+    TransferModule,
   ],
 })
 export class AppModule {}
