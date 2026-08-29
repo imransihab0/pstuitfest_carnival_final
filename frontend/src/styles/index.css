@@ -30,6 +30,30 @@
   .money {
     @apply font-mono tabular-nums tracking-tight;
   }
+
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.18em] text-muted;
+  }
+
+  .auth-title {
+    @apply mt-3 text-balance text-3xl font-semibold tracking-tight text-ink sm:text-4xl;
+  }
+
+  .auth-intro {
+    @apply mt-4 max-w-prose text-sm leading-6 text-muted;
+  }
+
+  .button-primary {
+    @apply inline-flex min-h-12 cursor-pointer items-center justify-center bg-ink px-5 text-sm font-semibold text-canvas transition-colors hover:bg-charcoal disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .button-secondary {
+    @apply inline-flex min-h-12 cursor-pointer items-center justify-center border border-line bg-canvas px-5 text-sm font-semibold text-charcoal transition-colors hover:border-ink disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .error-banner {
+    @apply mt-6 border-l-4 border-danger bg-canvas py-3 pl-4 text-sm leading-6 text-danger;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,11 +1,10 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios'
-import { tokenStore } from '../auth/tokenStore'
+import { getAccessToken, setAccessToken } from '../auth/accessToken'
+import type { AuthResponse } from '../auth/authTypes'
 
 const baseURL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
 type RetryableRequest = InternalAxiosRequestConfig & { _retry?: boolean }
-type RefreshResponse = { accessToken: string }
-
 const refreshClient = axios.create({ baseURL, withCredentials: true })
 
 export const apiClient = axios.create({
@@ -14,15 +13,15 @@ export const apiClient = axios.create({
   headers: { Accept: 'application/json' },
 })
 
-let refreshInFlight: Promise<string> | null = null
+let refreshInFlight: Promise<AuthResponse> | null = null
 
-async function refreshAccessToken(): Promise<string> {
+export async function refreshSession(): Promise<AuthResponse> {
   if (!refreshInFlight) {
     refreshInFlight = refreshClient
-      .post<RefreshResponse>('/auth/refresh')
+      .post<AuthResponse>('/auth/refresh')
       .then(({ data }) => {
-        tokenStore.setAccessToken(data.accessToken)
-        return data.accessToken
+        setAccessToken(data.accessToken)
+        return data
       })
       .finally(() => {
         refreshInFlight = null
@@ -33,7 +32,7 @@ async function refreshAccessToken(): Promise<string> {
 }
 
 apiClient.interceptors.request.use((config) => {
-  const accessToken = tokenStore.getAccessToken()
+  const accessToken = getAccessToken()
 
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`
@@ -54,11 +53,11 @@ apiClient.interceptors.response.use(
     request._retry = true
 
     try {
-      const accessToken = await refreshAccessToken()
-      request.headers.Authorization = `Bearer ${accessToken}`
+      const session = await refreshSession()
+      request.headers.Authorization = `Bearer ${session.accessToken}`
       return apiClient(request)
     } catch (refreshError) {
-      tokenStore.clearAccessToken()
+      setAccessToken(null)
       window.dispatchEvent(new CustomEvent('auth:session-expired'))
       return Promise.reject(refreshError)
     }
