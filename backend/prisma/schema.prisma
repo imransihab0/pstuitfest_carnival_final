@@ -1,32 +1,84 @@
-// Money Movement Application — Prisma schema
+// =============================================================================
+//  Money Movement Application — data model
+//  PSTU IT Carnival 2026
+// =============================================================================
 //
-// Deliberately empty of models at this stage. The scaffold commit sets up the
-// datasource, the generator and the client wiring only; the domain schema
-// (users, accounts, the append-only ledger, money requests, idempotency keys)
-// lands in the next step, together with the constraints that make the
-// correctness requirements in docs/REQUIREMENTS.md enforceable by the database
-// rather than by application code.
+//  MONEY IS AN INTEGER. FLOATS ARE BANNED IN THIS DOMAIN.
+//  ------------------------------------------------------
+//  Every monetary column in this schema is `BigInt`, mapped to PostgreSQL
+//  BIGINT, and holds an amount in **poisha** — the minor unit. 1 taka = 100
+//  poisha, so ৳100,000.00 is stored as the integer 10000000.
 //
-// Two schema-level commitments recorded here so they are not forgotten when the
-// models are written:
+//  There is no Float, Decimal, Real, or numeric-in-a-string column anywhere in
+//  the money path, and this is not a stylistic preference:
 //
-//   NFR-C  Money is stored exclusively as BigInt (Postgres BIGINT) in the minor
-//          unit — poisha, 1/100 BDT. No Float, no Decimal-by-convention, no
-//          money in a string column.
+//    * IEEE-754 binary floating point cannot represent most decimal fractions.
+//      `0.1 + 0.2 === 0.30000000000000004` is not a curiosity, it is the
+//      default behaviour of every float type. A balance built from such
+//      additions drifts, and the drift is unbounded over time.
 //
-//   NFR-A  Balance columns carry a CHECK (balance >= 0) database constraint and
-//          are only ever mutated by conditional UPDATEs, so a logic bug cannot
-//          persist a negative balance. Idempotency keys carry a UNIQUE
-//          constraint — the constraint violation *is* the deduplication
-//          mechanism (NFR-B).
-
-// Prisma 7 note: `datasource.url` is no longer permitted in the schema.
-// The migration connection string now lives in `prisma.config.ts`, and the
-// runtime connection is supplied by a driver adapter passed to the
-// PrismaClient constructor (see src/infrastructure/prisma/prisma.service.ts).
-// That split is useful here rather than merely mandatory: it puts the
-// connection pool under our direct control, which matters once concurrent
-// transfers start contending for connections.
+//    * Float arithmetic is not associative: (a + b) + c can differ from
+//      a + (b + c). Two ledgers replaying the same transfers in different
+//      orders would then disagree about the same account's balance, which
+//      destroys the one property an audit trail exists to provide.
+//
+//    * Rounding a float to 2 decimal places to "fix" this converts a
+//      representation error into a *value* error — money is created or
+//      destroyed, silently, one poisha at a time. Our global invariant
+//      (SUM(balance_poisha) = 0 across all accounts) would then fail, and we
+//      would have no way to tell a rounding artefact from a genuine bug.
+//
+//    * BIGINT is exact, associative, and has a range of ±9.22e18 poisha
+//      (~92 quadrillion taka). It cannot overflow at any scale this system
+//      will ever see, and equality comparisons on it are exact.
+//
+//  The corresponding application-side rule (NFR-C in docs/REQUIREMENTS.md):
+//  amounts are parsed to integer poisha at the input edge and formatted back to
+//  "৳1,234.56" only at the presentation edge. In between they are integers.
+//  JavaScript `number` is itself a double, so these values cross the
+//  application as `bigint`, never as `Number`. `eslint.config.mjs` fails the
+//  build on `parseFloat` and `Math.round`.
+//
+//
+//  DOUBLE-ENTRY ACCOUNTING
+//  -----------------------
+//  `transactions` records the business event ("A sent B ৳500"). `ledger_entries`
+//  records its double-entry lines — one DEBIT and one CREDIT, equal in
+//  magnitude. Money is never created or destroyed by a transfer, only moved,
+//  and that is a checkable property rather than a hope:
+//
+//      SUM(balance_poisha) across ALL accounts = 0, always.
+//
+//  This works because new money enters through the SYSTEM account, whose
+//  balance goes *negative* by exactly the amount issued — it is the mint. A
+//  user's ৳100,000 signup credit is matched by ৳100,000 of system debt, so the
+//  books balance from the very first row. Any deviation from zero is a bug, and
+//  it can be detected with a single query at any moment.
+//
+//
+//  WHAT THE DATABASE ENFORCES
+//  --------------------------
+//  Prisma's schema language cannot express CHECK constraints or triggers, so
+//  they live in the migration SQL and are listed on each model below. They are
+//  not decoration: they are the last line of defence for the invariants in
+//  docs/REQUIREMENTS.md, and they hold even if the application logic is wrong.
+//  See migrations/.../migration.sql for the authoritative definitions.
+//
+//
+//  CONCURRENCY STRATEGY
+//  --------------------
+//  There is deliberately no `version` / optimistic-lock column on `accounts`.
+//  Balance mutation uses a single conditional statement:
+//
+//      UPDATE accounts SET balance_poisha = balance_poisha - $amount
+//       WHERE id = $id AND balance_poisha >= $amount
+//
+//  The check and the deduction are one atomic operation, so they cannot be
+//  split by a concurrent transaction — a read-then-write in application code
+//  can be, which is the classic double-spend. Rows are locked in ascending
+//  account-id order when a transfer touches two accounts, so A→B and B→A
+//  running simultaneously cannot deadlock. (NFR-A)
+// =============================================================================
 
 generator client {
   provider = "prisma-client"
@@ -46,4 +98,430 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// =============================================================================
+//  Enums
+// =============================================================================
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+/// USER   — an ordinary customer wallet. Balance may never go negative.
+/// SYSTEM — the mint. Exactly one row. Its balance is the negative of all money
+///          issued into the system, which is what keeps the books at zero.
+enum AccountType {
+  USER
+  SYSTEM
+}
+
+enum AccountStatus {
+  ACTIVE
+  FROZEN
+  CLOSED
+}
+
+enum TransactionType {
+  /// User-to-user money movement.
+  TRANSFER
+  /// The ৳100,000 registration credit, issued from the SYSTEM account (FR-A).
+  SIGNUP_BONUS
+  /// Compensating entry. Reserved — corrections are new transactions, never
+  /// edits to an existing one.
+  REVERSAL
+}
+
+/// A transfer commits atomically, so it is written directly as SUCCESS or
+/// FAILED. PENDING exists for multi-step flows (and future cross-shard
+/// transfers, NFR-D) and must never be a resting state for a simple transfer.
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REVERSED
+}
+
+/// Stable, machine-readable failure codes. The API returns these; it never
+/// returns a driver message or a stack trace (NFR-14).
+enum TransactionFailureReason {
+  INSUFFICIENT_FUNDS
+  SELF_TRANSFER
+  INVALID_AMOUNT
+  LIMIT_EXCEEDED
+  SENDER_ACCOUNT_FROZEN
+  RECEIVER_ACCOUNT_FROZEN
+  RECEIVER_NOT_FOUND
+  REQUEST_NOT_PENDING
+  INTERNAL_ERROR
+}
+
+/// DEBIT decreases an account, CREDIT increases it. Every transaction writes
+/// both, in equal magnitude.
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum MoneyRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+/// IN_PROGRESS is written *before* the work starts, so a concurrent duplicate
+/// collides with the unique constraint instead of racing it (NFR-B).
+enum IdempotencyState {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+enum NotificationType {
+  MONEY_RECEIVED
+  MONEY_SENT
+  REQUEST_RECEIVED
+  REQUEST_ACCEPTED
+  REQUEST_REJECTED
+  REQUEST_CANCELLED
+  SIGNUP_BONUS
+}
+
+// =============================================================================
+//  Models
+// =============================================================================
+
+/// An authenticated person.
+///
+/// Users are **soft-deleted** via `status = CLOSED`. Hard deletion is blocked
+/// by ON DELETE RESTRICT on every financial relation: a counterparty who
+/// vanished would tear a hole in the other party's audit trail.
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique @db.VarChar(255)
+  phone        String     @unique @db.VarChar(20)
+  username     String     @unique @db.VarChar(50)
+  /// Argon2id/bcrypt digest. A plaintext password is never stored, logged or
+  /// returned (FR-A).
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  displayName  String     @map("display_name") @db.VarChar(100)
+  status       UserStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account           Account?
+  requestsCreated   MoneyRequest[]   @relation("RequestRequester")
+  requestsReceived  MoneyRequest[]   @relation("RequestRequestee")
+  idempotencyKeys   IdempotencyKey[]
+  notifications     Notification[]
+
+  // Case-insensitive lookup for login and user search (FR-05) is served by
+  // functional indexes on lower(email) / lower(username), added in the
+  // migration — Prisma cannot express expression indexes.
+  @@index([status])
+  @@map("users")
+}
+
+/// A wallet. One per user today; modelled as its own table so a user can hold
+/// several later without reshaping the ledger.
+///
+/// DATABASE CONSTRAINTS
+///   chk_accounts_balance_sign      USER accounts may never go negative. The
+///                                  SYSTEM account must, because it is the
+///                                  source of issued money.
+///   chk_accounts_currency          Single-currency closed system: 'BDT' only.
+///                                  Multi-currency would need a per-currency
+///                                  balance and an exchange-rate policy, and
+///                                  silently mixing units is how you lose money.
+///   uq_accounts_one_system         A partial unique index guaranteeing exactly
+///                                  one SYSTEM account can ever exist. Two
+///                                  mints would make the zero-sum invariant
+///                                  unverifiable.
+model Account {
+  id     String @id @default(uuid()) @db.Uuid
+  /// Nullable only for the SYSTEM account, which belongs to no user.
+  userId String? @unique @map("user_id") @db.Uuid
+
+  /// Balance in poisha. Integer. See the header comment on why this is not a
+  /// float. Mutated only by conditional UPDATE inside a transaction (NFR-A).
+  balancePoisha BigInt        @default(0) @map("balance_poisha")
+  currency      String        @default("BDT") @db.VarChar(3)
+  accountType   AccountType   @default(USER) @map("account_type")
+  status        AccountStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  // RESTRICT, not Cascade: deleting a user must not silently delete a wallet
+  // that participates in someone else's transaction history.
+  user User? @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  ledgerEntries        LedgerEntry[]
+  transactionsSent     Transaction[] @relation("TransactionSender")
+  transactionsReceived Transaction[] @relation("TransactionReceiver")
+
+  @@index([accountType])
+  @@map("accounts")
+}
+
+/// A money-movement event. One row per attempt — successful or failed — each
+/// with a unique, shareable `reference` (FR-12).
+///
+/// Failed attempts are recorded too. Because the failing transaction is rolled
+/// back, the FAILED row is written in a *separate* transaction; it carries no
+/// ledger entries, which is exactly what proves no balance moved (FR-21).
+///
+/// DATABASE CONSTRAINTS
+///   chk_transactions_amount_positive   amount_poisha > 0. Zero and negative
+///                                      amounts are rejected by the database,
+///                                      not merely by a DTO validator — a
+///                                      negative "transfer" is a withdrawal
+///                                      from the recipient (FR-09).
+///   chk_transactions_no_self_transfer  sender_account_id <> receiver_account_id
+///                                      (FR-08).
+///   chk_transactions_success_shape     A SUCCESS row must have a receiver and
+///                                      a completed_at; a FAILED row must have
+///                                      a failure_reason. Prevents
+///                                      half-described outcomes.
+model Transaction {
+  id String @id @default(uuid()) @db.Uuid
+  /// Public, shareable identifier, e.g. "TXN-7GH2K9QW". Unique.
+  reference String @unique @db.VarChar(32)
+
+  type   TransactionType
+  status TransactionStatus @default(PENDING)
+
+  /// Amount in poisha. Integer, always > 0 (enforced by CHECK).
+  amountPoisha BigInt @map("amount_poisha")
+
+  senderAccountId String @map("sender_account_id") @db.Uuid
+  /// Null only when the transfer failed before a recipient could be resolved
+  /// (RECEIVER_NOT_FOUND). A SUCCESS row must have one — enforced by CHECK.
+  receiverAccountId String? @map("receiver_account_id") @db.Uuid
+
+  note          String?                   @db.VarChar(255)
+  failureReason TransactionFailureReason? @map("failure_reason")
+
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  senderAccount   Account  @relation("TransactionSender", fields: [senderAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  receiverAccount Account? @relation("TransactionReceiver", fields: [receiverAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  ledgerEntries  LedgerEntry[]
+  idempotencyKey IdempotencyKey?
+  notifications  Notification[]
+  /// Back-relation. Present only when this transfer settled a money request;
+  /// the owning side is MoneyRequest.settledTransactionId.
+  settledMoneyRequest MoneyRequest?
+
+  // Keyset pagination for transaction history (FR-D). `id` is the tiebreaker
+  // so pages are stable when two rows share a timestamp.
+  @@index([senderAccountId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([receiverAccountId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("transactions")
+}
+
+/// The append-only double-entry ledger. The system of record for every poisha.
+///
+/// ┌───────────────────────────────────────────────────────────────────────┐
+/// │  INSERT-ONLY. NEVER UPDATE. NEVER DELETE.                             │
+/// └───────────────────────────────────────────────────────────────────────┘
+///
+/// This is the single most important rule in the schema. A ledger that can be
+/// edited is a report, not an audit trail: if a row can change after the fact,
+/// then "replay the entries to verify the balance" proves nothing, and there is
+/// no way to distinguish a correction from a cover-up.
+///
+/// A mistake is fixed by inserting a **compensating entry** (a REVERSAL
+/// transaction), never by amending or removing the original. The original stays
+/// visible forever, which is the point.
+///
+/// Enforcement, in layers:
+///
+///   1. Application layer (the contract this comment defines): the repository
+///      exposes only `create` / `createMany` for this table. No update or
+///      delete method exists to be called by accident.
+///
+///   2. Code review / lint: no `prisma.ledgerEntry.update`, `.updateMany`,
+///      `.delete`, `.deleteMany`, or `.upsert` may appear anywhere.
+///
+///   3. Database (defence in depth): the migration installs
+///      `trg_ledger_entries_immutable`, a BEFORE UPDATE OR DELETE trigger that
+///      raises an exception. PostgreSQL has no native "immutable table" flag,
+///      so a trigger is how the guarantee is actually made real rather than
+///      merely documented. It can be dropped deliberately for a schema
+///      migration; it cannot be tripped over accidentally by application code.
+///
+/// DATABASE CONSTRAINTS
+///   chk_ledger_entries_amount_positive  amount_poisha > 0. Direction is carried
+///                                       by the DEBIT/CREDIT column, never by
+///                                       the sign of the amount — signed
+///                                       amounts plus a direction column is a
+///                                       double negative waiting to happen.
+///   trg_ledger_entries_immutable        Blocks UPDATE and DELETE.
+model LedgerEntry {
+  id            String @id @default(uuid()) @db.Uuid
+  transactionId String @map("transaction_id") @db.Uuid
+  accountId     String @map("account_id") @db.Uuid
+
+  direction LedgerDirection
+  /// Magnitude in poisha. Always positive; see `direction` for the sign.
+  amountPoisha BigInt @map("amount_poisha")
+
+  /// The account's balance immediately after this entry was applied. Denormalised
+  /// on purpose: it lets a statement render without summing history, and it lets
+  /// an auditor detect tampering by re-adding the entries and comparing.
+  balanceAfterPoisha BigInt @map("balance_after_poisha")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  account     Account     @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  // Serves account statements and keyset pagination (FR-D).
+  @@index([accountId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([transactionId])
+  @@map("ledger_entries")
+}
+
+/// A claim for payment: "you owe me ৳1,200" (FR-C).
+///
+/// Creating a request moves no money. Accepting it runs the full, ordinary
+/// transfer path — the same balance check, the same atomicity, the same ledger
+/// entries — so a request is never a shortcut around a transfer rule.
+///
+/// DATABASE CONSTRAINTS
+///   chk_money_requests_amount_positive  amount_poisha > 0.
+///   chk_money_requests_not_self         requester_id <> requestee_id.
+///   chk_money_requests_accepted_shape   An ACCEPTED request must point at the
+///                                       transaction that settled it, and a
+///                                       PENDING one must not. This is what
+///                                       makes "accepted but no money moved"
+///                                       unrepresentable.
+model MoneyRequest {
+  id        String @id @default(uuid()) @db.Uuid
+  reference String @unique @db.VarChar(32)
+
+  /// Who asked to be paid.
+  requesterId String @map("requester_id") @db.Uuid
+  /// Who is being asked to pay.
+  requesteeId String @map("requestee_id") @db.Uuid
+
+  amountPoisha BigInt             @map("amount_poisha")
+  note         String?            @db.VarChar(255)
+  status       MoneyRequestStatus @default(PENDING)
+
+  /// Set exactly when the request is accepted. The transition and the transfer
+  /// commit together or not at all. Unique: one transfer settles at most one
+  /// request, so a single payment can never be credited against two claims.
+  settledTransactionId String? @unique @map("settled_transaction_id") @db.Uuid
+
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  respondedAt DateTime? @map("responded_at") @db.Timestamptz(6)
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz(6)
+
+  requester User @relation("RequestRequester", fields: [requesterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requestee User @relation("RequestRequestee", fields: [requesteeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  settledTransaction Transaction? @relation(fields: [settledTransactionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  notifications      Notification[]
+
+  // "My incoming pending requests" and "my outgoing requests" — the two views
+  // the UI actually renders (FR-16).
+  @@index([requesteeId, status, createdAt(sort: Desc)])
+  @@index([requesterId, status, createdAt(sort: Desc)])
+  @@map("money_requests")
+}
+
+/// Deduplication record for retried mutating requests (NFR-B).
+///
+/// The unique constraint on (user_id, key) **is** the deduplication mechanism.
+/// A "check whether it exists, then insert" sequence is itself a race and
+/// provides no guarantee; here the second concurrent writer loses on the
+/// constraint and reads back the winner's stored response.
+///
+/// `requestHash` guards against a client reusing one key for two different
+/// payloads — that is a client bug, and returning the first response for the
+/// second request would hide it, so it is rejected as a conflict instead.
+///
+/// Rows are disposable: a cleanup job deletes them past `expires_at`. They are
+/// NOT part of the audit trail, which is why this table cascades on user
+/// deletion while every financial table restricts.
+///
+/// DATABASE CONSTRAINTS
+///   uq_idempotency_keys_user_key   UNIQUE (user_id, key) — the dedup mechanism.
+model IdempotencyKey {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Client-generated, typically a UUID, sent as the `Idempotency-Key` header.
+  key    String @db.VarChar(255)
+  userId String @map("user_id") @db.Uuid
+
+  /// Which operation the key was issued for, e.g. "POST /transfers". Scoping
+  /// prevents one key from colliding across unrelated endpoints.
+  operation String @db.VarChar(100)
+  /// Digest of the canonicalised request body. A replay with a different body
+  /// is a conflict, not a cache hit.
+  requestHash String @map("request_hash") @db.VarChar(64)
+
+  state IdempotencyState @default(IN_PROGRESS)
+
+  /// The stored response, replayed verbatim on retry so a client that never saw
+  /// the first reply gets the identical answer.
+  responseStatus Int?  @map("response_status")
+  responseBody   Json? @map("response_body")
+
+  /// The transaction this key produced, if any.
+  transactionId String? @unique @map("transaction_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([userId, key], map: "uq_idempotency_keys_user_key")
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+/// User-facing notification (FR-F).
+///
+/// Rows are written only **after** the money transaction commits — a user is
+/// never told about money that a rollback subsequently erased. The realtime
+/// socket push is a delivery optimisation on top of this table; if the socket
+/// message is dropped, the row is still here and the client sees it on refetch.
+///
+/// Derived data, not an audit record: cascades on user deletion.
+model Notification {
+  id     String           @id @default(uuid()) @db.Uuid
+  userId String           @map("user_id") @db.Uuid
+  type   NotificationType
+
+  title String  @db.VarChar(120)
+  body  String  @db.VarChar(500)
+  /// Structured payload for the client (amounts here are strings, since JSON
+  /// numbers are doubles and would reintroduce the float problem).
+  payload Json?
+
+  transactionId  String? @map("transaction_id") @db.Uuid
+  moneyRequestId String? @map("money_request_id") @db.Uuid
+
+  readAt    DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  transaction  Transaction?  @relation(fields: [transactionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  moneyRequest MoneyRequest? @relation(fields: [moneyRequestId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)])
+  @@map("notifications")
 }

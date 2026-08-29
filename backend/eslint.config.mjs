@@ -185,6 +185,39 @@ export default tseslint.config(
   },
 
   {
+    name: 'layer/ledger-append-only',
+    // Backs the append-only contract documented on the LedgerEntry model in
+    // prisma/schema.prisma. The database trigger is the hard guarantee; this
+    // rule catches the mistake at author time, with an explanation, instead of
+    // at runtime as a constraint violation.
+    files: ['src/**/*.ts', 'prisma/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'MemberExpression[object.property.name="ledgerEntry"][property.name=/^(update|updateMany|delete|deleteMany|upsert)$/]',
+          message:
+            'ledger_entries is append-only. Correct a mistake by inserting a compensating ' +
+            'REVERSAL entry — never by amending or removing an existing one. A ledger whose ' +
+            'rows can change is a report, not an audit trail. (The database trigger ' +
+            'trg_ledger_entries_immutable will reject this at runtime regardless.)',
+        },
+      ],
+    },
+  },
+
+  {
+    name: 'scripts',
+    // Seeds and one-off scripts are CLI tools: their output IS the interface,
+    // so the structured-logging rule that applies to server code does not.
+    files: ['prisma/**/*.ts'],
+    rules: {
+      'no-console': 'off',
+    },
+  },
+
+  {
     name: 'tests',
     files: ['**/*.spec.ts', '**/*.e2e-spec.ts', 'test/**/*.ts'],
     rules: {

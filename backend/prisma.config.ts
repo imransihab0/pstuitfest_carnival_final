@@ -16,6 +16,11 @@ export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
+    // `tsx`, not bare `node`. Node's native type stripping does not remap the
+    // TypeScript-style `./client.js` import specifier onto the `client.ts` file
+    // that Prisma actually generates, so `node prisma/seed.ts` fails to resolve
+    // the client. tsx handles that remapping.
+    seed: 'npx tsx prisma/seed.ts',
   },
   datasource: {
     url: env('DATABASE_URL'),

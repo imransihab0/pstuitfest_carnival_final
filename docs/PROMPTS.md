@@ -67,3 +67,23 @@ package list. Add a docker-compose.yml at repo root wiring up api + postgres
 + redis. Implement only a GET /health endpoint for now. Do not implement
 business logic yet.
 ```
+
+---
+
+## Entry 003
+
+**Timestamp:** 2026-08-29
+
+```
+Append to PROMPTS.md, then proceed.
+
+In /backend, define the Prisma schema for: users, accounts, transactions,
+ledger_entries, money_requests, idempotency_keys, notifications. All monetary
+fields are BigInt representing poisha (1 taka = 100 poisha) — add a schema
+comment explaining why floats are banned in this domain. Add CHECK
+constraints (amount_poisha > 0), enums for transaction/request status, and
+foreign keys with appropriate onDelete behavior. Ledger_entries must be
+insert-only at the application layer — document this constraint in a comment
+even though Postgres won't enforce immutability natively. Generate the
+initial migration and seed script.
+```
