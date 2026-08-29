@@ -13,7 +13,7 @@ type PinEntryModalProps = {
 export function PinEntryModal({
   open,
   title = 'Confirm with your PIN',
-  description = 'Enter your 4-digit transaction PIN to authorize this action.',
+  description = 'Enter your 6-digit transaction PIN to authorize this action.',
   submitting = false,
   error,
   onConfirm,
@@ -39,7 +39,7 @@ export function PinEntryModal({
 
   function submit(event: FormEvent) {
     event.preventDefault()
-    if (/^\d{4}$/.test(pin)) void onConfirm(pin)
+    if (/^\d{6}$/.test(pin)) void onConfirm(pin)
   }
 
   return (
@@ -67,10 +67,10 @@ export function PinEntryModal({
           type="password"
           inputMode="numeric"
           autoComplete="off"
-          maxLength={4}
-          pattern="[0-9]{4}"
+          maxLength={6}
+          pattern="[0-9]{6}"
           value={pin}
-          onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 4))}
+          onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
           className={`money mt-2 min-h-14 w-full border bg-canvas px-4 text-center text-2xl tracking-[0.5em] outline-none focus:border-ink focus:ring-1 focus:ring-ink ${error ? 'border-danger' : 'border-line'}`}
           aria-invalid={Boolean(error)}
           aria-describedby={error ? 'pin-modal-error' : undefined}
@@ -80,7 +80,7 @@ export function PinEntryModal({
 
         <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button className="button-secondary" type="button" onClick={onCancel} disabled={submitting}>Cancel</button>
-          <button className="button-primary" type="submit" disabled={submitting || pin.length !== 4}>
+          <button className="button-primary" type="submit" disabled={submitting || pin.length !== 6}>
             {submitting ? 'Confirming…' : 'Confirm'}
           </button>
         </div>

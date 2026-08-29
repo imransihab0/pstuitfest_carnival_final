@@ -1,39 +1,43 @@
 import { useCallback, useEffect, useMemo, useState, type PropsWithChildren } from 'react'
-import { apiClient, refreshSession } from '../api/client'
+import { apiClient } from '../api/client'
 import { AuthContext, type AuthStatus } from './AuthContext'
-import type { AuthResponse, AuthUser, LoginPayload, RegisterPayload } from './authTypes'
-import { setAccessToken } from './accessToken'
+import type { AuthUser, LoginPayload, LoginResponse, RegisterPayload, RegisterResponse } from './authTypes'
+import { setAccessToken, setRefreshToken } from './accessToken'
 
 export function AuthProvider({ children }: PropsWithChildren) {
-  const [status, setStatus] = useState<AuthStatus>('loading')
+  const [status, setStatus] = useState<AuthStatus>('anonymous')
   const [user, setUser] = useState<AuthUser | null>(null)
 
-  const acceptSession = useCallback((session: AuthResponse) => {
+  const acceptSession = useCallback((session: LoginResponse) => {
     setAccessToken(session.accessToken)
-    setUser(session.user)
+    setRefreshToken(session.refreshToken)
+    setUser({ id: session.userId, username: session.username, name: session.username })
     setStatus('authenticated')
   }, [])
 
   const clearSession = useCallback(() => {
     setAccessToken(null)
+    setRefreshToken(null)
     setUser(null)
     setStatus('anonymous')
   }, [])
 
   useEffect(() => {
-    void refreshSession().then(acceptSession).catch(clearSession)
-
     window.addEventListener('auth:session-expired', clearSession)
     return () => window.removeEventListener('auth:session-expired', clearSession)
   }, [acceptSession, clearSession])
 
   const login = useCallback(async (payload: LoginPayload) => {
-    const { data } = await apiClient.post<AuthResponse>('/auth/login', payload)
+    const { data } = await apiClient.post<LoginResponse>('/auth/login', payload)
     acceptSession(data)
   }, [acceptSession])
 
   const register = useCallback(async (payload: RegisterPayload) => {
-    const { data } = await apiClient.post<AuthResponse>('/auth/register', payload)
+    await apiClient.post<RegisterResponse>('/auth/register', payload)
+    const { data } = await apiClient.post<LoginResponse>('/auth/login', {
+      identifier: payload.email,
+      password: payload.password,
+    } satisfies LoginPayload)
     acceptSession(data)
   }, [acceptSession])
 

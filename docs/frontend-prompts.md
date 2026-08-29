@@ -49,3 +49,37 @@ actions; (4) Transaction History — paginated, filterable, ledger-style
 statement view. Wire optimistic UI updates that reconcile against the
 server response.
 ```
+
+---
+
+## Entry 004
+
+**Timestamp:** 2026-08-29
+
+```
+That message is the frontend's generic fallback — it fires because the request never reaches the backend.
+
+Immediate cause: 404. The frontend posts to http://localhost:3000/auth/register, but the API serves /api/v1/auth/register. There's no error body to show, so you get the catch-all text.
+
+And even at the right URL, the payload is rejected (7 problems):
+
+property name should not exist
+Phone must be 10-15 digits
+Username ... required (3-50 chars)
+displayName ... required
+Password must be at least 12 characters   ← form only requires 8
+PIN must be exactly 6 digits              ← form only allows 4
+
+The form collects name, email, password, pin. The API needs email, phone, username, displayName, password, pin. So: no phone field, no username field, password minimum too low, PIN too short — plus name vs displayName.
+
+This is items 1, 3 and 6 from the wiring audit. Nothing is broken server-side; the two sides were built to different contracts.
+
+Want me to fix it? Smallest useful change:
+1. VITE_API_URL=http://localhost:3000/api/v1
+2. Add phone + username fields to the register form, rename name → displayName
+3. Password min 8 → 12, PIN 4 → 6 digits (form, modal, and validators)
+4. Map the login/auth response shape
+
+That gets register + login working end-to-end. The dashboard/transfer screens will still 404 — those five endpoints don't exist yet.
+dont change backend just fix the frontend based on backend
+```
