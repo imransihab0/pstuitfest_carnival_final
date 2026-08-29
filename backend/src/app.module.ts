@@ -5,6 +5,7 @@ import { PrismaModule } from './infrastructure/prisma/prisma.module.js';
 import { RedisModule } from './infrastructure/redis/redis.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 import { TransferModule } from './modules/transfers/transfer.module.js';
+import { AuthModule } from './auth/auth.module.js';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { TransferModule } from './modules/transfers/transfer.module.js';
     RedisModule,
 
     // Feature modules.
+    AuthModule,
     HealthModule,
     TransferModule,
   ],

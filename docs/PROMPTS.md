@@ -134,3 +134,42 @@ accounts.balance_poisha afterward.
 ```
 before moveing to the next prompt, kindly install the necessary requirements, like prisma, postgresql and other things , you can use brew, i have that installed. and connect all of them. append this to PROMPTS.md ofc
 ```
+
+---
+
+## Entry 006
+
+**Timestamp:** 2026-08-29
+
+```
+PROMPT 4 — Idempotency + Rate Limiting (merged)
+Log this prompt in /docs/PROMPTS.md (next entry number), then implement.
+
+Scope: /backend/src/common/interceptors, /backend/src/common/guards only.
+
+1. IdempotencyInterceptor for mutating money-movement routes:
+    key = hash(route + normalized body),  hit + matching hash → return cached response, hit + mismatched hash → 409  , miss → mark IN_PROGRESS, run request, persist response on completion ,handle simultaneous duplicate requests before either completes (test this)
+
+2. Redis token-bucket RateLimitGuard, applied to /auth/login and PIN verification.
+
+Output: interceptor, guard, 3-4 focused Jest tests (dedupe, mismatch, concurrent race, rate-limit trip). No prose explanation needed in the response , code + test output only.
+```
+
+---
+
+## Entry 007
+
+**Timestamp:** 2026-08-29
+
+```
+Log this prompt(5), then implement.
+
+Scope: /backend/src/auth module only.
+
+- Register/login: Argon2id for password and PIN, JWT access (15m) + rotating refresh token (hashed, server-side, reuse detection revokes session family)
+- Registration transaction: create user + accounts row (balance_poisha=10_000_000) + one CREDIT ledger_entries row from fixed system seed account, atomically
+- PinGuard decorator: required on any transfer-mutating endpoint; login/JWT alone only grants read access
+- Reuse the RateLimitGuard from Prompt 4 on /auth/login and PIN checks
+
+Output: module, guards, decorator, tests for reuse-detection and PIN-gate rejection. Skip prose , just implement and report pass/fail on tests.
+```
