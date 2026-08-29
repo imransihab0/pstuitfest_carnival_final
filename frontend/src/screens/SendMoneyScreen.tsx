@@ -93,12 +93,12 @@ export function SendMoneyScreen() {
         <div>
           <label className="field-label" htmlFor="recipient-search">Recipient</label>
           <input id="recipient-search" className="field-input" value={search} onChange={(event) => { setSearch(event.target.value); setSelected(null); setIntent(null) }} placeholder="Search by name, email, phone, or ID" autoComplete="off" />
-          {users.isFetching && <p className="field-help">Searching…</p>}
-          {users.data && search.length >= 2 && (
+          {users.isFetching && !selected && <p className="field-help">Searching…</p>}
+          {users.data && search.length >= 2 && !selected && (
             <ul className="mt-2 divide-y divide-line border border-line">
               {users.data.map((user) => (
                 <li key={user.id}>
-                  <button type="button" className={`flex min-h-14 w-full items-center justify-between px-4 text-left hover:bg-line ${selected?.id === user.id ? 'bg-line' : 'bg-canvas'}`} onClick={() => { setSelected(user); setIntent(null) }}>
+                  <button type="button" className="flex min-h-14 w-full items-center justify-between bg-canvas px-4 text-left hover:bg-line" onClick={() => { setSelected(user); setIntent(null) }}>
                     <span className="font-medium text-ink">{user.name}</span><span className="text-sm text-muted">{user.email}</span>
                   </button>
                 </li>

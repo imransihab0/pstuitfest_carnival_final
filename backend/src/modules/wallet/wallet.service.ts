@@ -48,6 +48,19 @@ function decodeCursor(cursor?: string): { createdAt: Date; id: string } | null {
   }
 }
 
+/** An unset filter arrives as an omitted query param OR an empty string — both mean "no filter". */
+function blankToUndefined(value: string | undefined): string | undefined {
+  return value === undefined || value === '' ? undefined : value;
+}
+
+/** Rejects blanks and unparseable dates the same way: as "no filter", never as a crash. */
+function parseDateFilter(value: string | undefined): Date | undefined {
+  const raw = blankToUndefined(value);
+  if (raw === undefined) return undefined;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
 @Injectable()
 export class WalletService {
   constructor(private readonly walletRepository: WalletRepository) {}
@@ -91,10 +104,10 @@ export class WalletService {
       limit: limit + 1,
       cursorCreatedAt: cursor?.createdAt,
       cursorId: cursor?.id,
-      direction: params.direction,
-      status: params.status,
-      from: params.from !== undefined ? new Date(params.from) : undefined,
-      to: params.to !== undefined ? new Date(params.to) : undefined,
+      direction: blankToUndefined(params.direction) as 'CREDIT' | 'DEBIT' | undefined,
+      status: blankToUndefined(params.status),
+      from: parseDateFilter(params.from),
+      to: parseDateFilter(params.to),
     });
 
     const hasMore = rows.length > limit;
