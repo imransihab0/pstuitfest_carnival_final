@@ -310,31 +310,55 @@ describe('Auth — registration, rotation, reuse detection, PIN gate', () => {
     const reflector = {
       getAllAndOverride: (key: string) => (key === REQUIRES_PIN_KEY ? requiresPin : undefined),
     } as unknown as Reflector;
-    return new PinGuard(reflector);
+    // PinGuard now also accepts a PIN supplied with the request itself, so it
+    // needs AuthService. These cases exercise the token-claim route only, hence
+    // the stub.
+    return new PinGuard(reflector, auth);
   };
 
-  it('PinGuard blocks a JWT-only caller on a money-mutating route', () => {
+  it('PinGuard blocks a JWT-only caller on a money-mutating route', async () => {
     const guard = guardWith(true);
-    expect(() =>
+    await expect(
       guard.canActivate(contextFor({ sub: 'u1', username: 'a', fam: 'f', pinVerified: false })),
-    ).toThrow(ForbiddenException);
+    ).rejects.toThrow(ForbiddenException);
   });
 
-  it('PinGuard allows a PIN-verified caller', () => {
+  it('PinGuard allows a PIN-verified caller', async () => {
     const guard = guardWith(true);
-    expect(
+    await expect(
       guard.canActivate(contextFor({ sub: 'u1', username: 'a', fam: 'f', pinVerified: true })),
-    ).toBe(true);
+    ).resolves.toBe(true);
   });
 
-  it('PinGuard fails closed when no user is attached', () => {
+  it('PinGuard fails closed when no user is attached', async () => {
     const guard = guardWith(true);
-    expect(() => guard.canActivate(contextFor(undefined))).toThrow(UnauthorizedException);
+    await expect(guard.canActivate(contextFor(undefined))).rejects.toThrow(UnauthorizedException);
   });
 
-  it('PinGuard ignores routes not marked @RequiresPin', () => {
+  it('PinGuard ignores routes not marked @RequiresPin', async () => {
     const guard = guardWith(undefined);
-    expect(guard.canActivate(contextFor(undefined))).toBe(true);
+    await expect(guard.canActivate(contextFor(undefined))).resolves.toBe(true);
+  });
+
+  it('PinGuard accepts a correct PIN supplied with the request, and rejects a wrong one', async () => {
+    const dto = makeUser();
+    const registered = await auth.register(dto);
+    const guard = guardWith(true);
+
+    const ctx = (pin: string): ExecutionContext =>
+      ({
+        switchToHttp: () => ({
+          getRequest: () => ({
+            user: { sub: registered.userId, username: dto.username, fam: 'f', pinVerified: false },
+            body: { pin },
+          }),
+        }),
+        getHandler: () => () => undefined,
+        getClass: () => class {},
+      }) as unknown as ExecutionContext;
+
+    await expect(guard.canActivate(ctx(dto.pin))).resolves.toBe(true);
+    await expect(guard.canActivate(ctx('000000'))).rejects.toThrow(ForbiddenException);
   });
 
   // ===========================================================================

@@ -173,3 +173,13 @@ Scope: /backend/src/auth module only.
 
 Output: module, guards, decorator, tests for reuse-detection and PIN-gate rejection. Skip prose , just implement and report pass/fail on tests.
 ```
+
+---
+
+## Entry 008
+
+**Timestamp:** 2026-08-29
+
+```
+before we move to the further prompt, kindly check all the wiring with the front end, [append in the prompt md ]
+```

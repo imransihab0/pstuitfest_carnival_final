@@ -9,6 +9,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { type Request } from 'express';
 import { type AuthenticatedUser } from '../auth.types.js';
+import { AuthService } from '../auth.service.js';
 
 export const REQUIRES_PIN_KEY = 'requires_pin';
 
@@ -48,16 +49,21 @@ export const RequiresPin = (): MethodDecorator & ClassDecorator =>
  */
 @Injectable()
 export class PinGuard implements CanActivate {
-  constructor(private readonly reflector: Reflector) {}
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly authService: AuthService,
+  ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const requiresPin = this.reflector.getAllAndOverride<boolean>(REQUIRES_PIN_KEY, [
       context.getHandler(),
       context.getClass(),
     ]);
     if (requiresPin !== true) return true;
 
-    const request = context.switchToHttp().getRequest<Request & { user?: AuthenticatedUser }>();
+    const request = context
+      .switchToHttp()
+      .getRequest<Request & { user?: AuthenticatedUser; body?: Record<string, unknown> }>();
     const user = request.user;
 
     if (user === undefined) {
@@ -69,13 +75,37 @@ export class PinGuard implements CanActivate {
       });
     }
 
-    if (!user.pinVerified) {
+    // Route 1: the access token already carries a verified PIN claim, earned
+    // via POST /auth/pin/verify.
+    if (user.pinVerified) return true;
+
+    // Route 2: the PIN accompanies this single request. Verified here, against
+    // the stored Argon2id digest, and never trusted as a bare assertion.
+    //
+    // Supporting both is deliberate. A per-action PIN prompt is the interaction
+    // users actually expect from a wallet, and forcing a separate
+    // /auth/pin/verify round trip first would either add latency to every
+    // transfer or push clients into caching a money-moving grant for longer
+    // than the action needs it. This route grants authority for exactly one
+    // request.
+    const submittedPin = request.body?.pin;
+    if (typeof submittedPin === 'string' && /^[0-9]{6}$/.test(submittedPin)) {
+      const ok = await this.authService.checkPin(user.sub, submittedPin);
+      if (ok) {
+        // Remove it before the handler runs: the PIN must not reach a DTO, a
+        // log line, or the idempotency request hash.
+        delete request.body?.pin;
+        return true;
+      }
       throw new ForbiddenException({
-        code: 'PIN_VERIFICATION_REQUIRED',
-        message: 'Verify your transaction PIN before moving money.',
+        code: 'INVALID_PIN',
+        message: 'Incorrect PIN.',
       });
     }
 
-    return true;
+    throw new ForbiddenException({
+      code: 'PIN_VERIFICATION_REQUIRED',
+      message: 'Verify your transaction PIN before moving money.',
+    });
   }
 }

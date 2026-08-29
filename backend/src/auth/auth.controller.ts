@@ -27,7 +27,11 @@ export class AuthController {
 
   @Post('register')
   @Public()
-  @RateLimit({ scope: 'auth:register', capacity: 3, refillPerSecond: 0.01, by: 'ip' })
+  // 10 signups per IP, refilling one every 20s. The earlier 3-per-IP at one
+  // per 100s throttled legitimate use — a demo, a shared campus NAT, or a user
+  // who mistypes a field twice would all hit it. Still far below what a
+  // scripted account-farm needs.
+  @RateLimit({ scope: 'auth:register', capacity: 10, refillPerSecond: 0.05, by: 'ip' })
   async register(@Body() dto: RegisterDto) {
     const user = await this.authService.register(dto);
     return {

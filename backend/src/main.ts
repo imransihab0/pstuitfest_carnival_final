@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import { type Env } from './config/env.schema.js';
+import { requestLogger } from './common/middleware/request-logger.middleware.js';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -15,6 +16,11 @@ async function bootstrap(): Promise<void> {
 
   // `/health` stays unprefixed so probes hit exactly GET /health.
   app.setGlobalPrefix(apiPrefix, { exclude: ['health'] });
+
+  // Log every request with status and duration. Registered as middleware, not
+  // an interceptor, so that unmatched routes (404s) are logged too — a client
+  // calling the wrong path is otherwise invisible from the server side.
+  app.use(requestLogger);
 
   app.useGlobalPipes(
     new ValidationPipe({

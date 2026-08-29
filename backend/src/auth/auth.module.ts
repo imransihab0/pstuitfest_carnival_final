@@ -35,6 +35,20 @@ import { type Env } from '../config/env.schema.js';
     IdempotencyInterceptor,
     IdempotencyRepository,
   ],
-  exports: [AuthService, JwtAuthGuard, PinGuard, RateLimitGuard, IdempotencyInterceptor, JwtModule],
+  // The repositories are exported too, not just the guards. A guard applied in
+  // another module is instantiated in *that* module's injector, so its
+  // dependencies must be resolvable there — exporting only the guard leaves it
+  // unconstructable outside AuthModule.
+  exports: [
+    AuthService,
+    AuthRepository,
+    JwtAuthGuard,
+    PinGuard,
+    RateLimitGuard,
+    RateLimitRepository,
+    IdempotencyInterceptor,
+    IdempotencyRepository,
+    JwtModule,
+  ],
 })
 export class AuthModule {}

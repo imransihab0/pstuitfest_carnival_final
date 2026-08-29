@@ -186,6 +186,16 @@ export class AuthService {
     };
   }
 
+  /**
+   * Verifies a PIN without issuing a token. Used by PinGuard when the PIN
+   * accompanies a single money-moving request.
+   */
+  async checkPin(userId: string, pin: string): Promise<boolean> {
+    const user = await this.authRepository.findCredentialsById(userId);
+    if (user?.pinHash == null || user.status !== 'ACTIVE') return false;
+    return await AuthService.verify(user.pinHash, pin);
+  }
+
   // ---------------------------------------------------------------------------
   // Refresh with rotation and reuse detection
   // ---------------------------------------------------------------------------

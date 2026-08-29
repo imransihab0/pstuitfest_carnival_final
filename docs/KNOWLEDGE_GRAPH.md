@@ -251,7 +251,7 @@ Decisions already made, with the reasoning. **Do not silently reverse these.**
 | Money requests (create/accept/reject) | ❌ not built (schema ready) |
 | Transaction history endpoint | ❌ not built (schema + indexes ready) |
 | Realtime notifications (socket) | ❌ not built (schema ready) |
-| Frontend | ❌ not built (deps installed at repo root) |
+| Frontend (React 18 + Vite + Tailwind + React Query) | ⚠️ builds, but **NOT wired to the backend** — see §12 |
 
 **Demo credentials:** any seeded user (`alice@example.com` … `erin@example.com`),
 password `Carnival#2026`.
@@ -387,3 +387,58 @@ docker compose up --build
 5. After any change to money handling, re-verify I1–I4 (§5).
 6. Keep this file current. If you add a module, add it to §2 and §8; if you make
    an architectural decision, add it to §6.
+
+
+---
+
+## 12. Frontend ↔ backend wiring status
+
+**The frontend compiles and the backend runs, but they do not talk to each
+other yet.** Verified by probing the running API, not by reading code. Every row
+below is a measured result.
+
+### Blocking mismatches
+
+| # | Area | Frontend expects | Backend serves | Result |
+| --- | --- | --- | --- | --- |
+| 1 | **Base path** | `http://localhost:3000` + `/auth/login` | global prefix `api/v1` | **404 on every call** |
+| 2 | **Login body** | `{ email, password }` | `{ identifier, password }` | 400 `property email should not exist` |
+| 3 | **Register body** | `{ email, password, name, pin }` | `{ email, phone, username, displayName, password, pin }` | 400, missing 3 required fields |
+| 4 | **Auth response** | `{ accessToken, user: { id, name, email } }` | `{ userId, username, accessToken, refreshToken, … }` | no `user` object → `AuthProvider` sets `user` to `undefined` |
+| 5 | **Refresh transport** | cookie-based (`withCredentials`, empty body) | `{ refreshToken }` in body; **no `Set-Cookie` issued** | 400; silent-refresh loop cannot work |
+| 6 | **PIN length** | 4 digits (`/^\d{4}$/`, `maxLength={4}`) | exactly 6 digits (`/^[0-9]{6}$/`) | every PIN rejected |
+| 7 | **PIN flow** | `pin` sent in the transfer body | `POST /auth/pin/verify` → new token carrying `pin` claim; `PinGuard` reads the **claim** | a `pin` in the body authorises nothing |
+| 8 | **Missing endpoints** | `/accounts/me/summary`, `/users/search`, `/transfers`, `/money-requests`, `/transactions` | none of these exist | 404 |
+
+### Already correct
+
+- **CORS** — preflight from `http://localhost:5173` returns 204 with
+  `Access-Control-Allow-Origin`, `-Credentials: true`, and
+  `Access-Control-Allow-Headers: content-type, authorization, idempotency-key`.
+  The Vite port and `CORS_ORIGIN` match.
+- **Idempotency header** — the frontend already sends `Idempotency-Key` on
+  transfers and request accept/reject, which is exactly what the interceptor
+  reads.
+- **Money as strings** — `amountPoisha` is a string on both sides; no JSON
+  numbers in the money path (NFR-C).
+- **Bearer-token attachment and 401→refresh→retry** interceptor logic is sound;
+  only the refresh *transport* is wrong.
+
+### Also noted
+
+- Root `package.json` is a leftover (React deps, no source). The real frontend
+  is `frontend/` with its own `package.json`. The root one should be deleted or
+  turned into a workspace root.
+- `socket.io-client` is in the **root** package.json only; the real frontend
+  does not depend on it and no socket server exists. Realtime (FR-F) is
+  unbuilt on both sides.
+- Seeded users (`alice`…`erin`) have **scrypt** password hashes and cannot log
+  in against Argon2id verification. Only users created via `POST /auth/register`
+  can authenticate.
+
+### Decision needed before wiring
+
+Item 5 is a genuine architecture choice, not a typo: refresh tokens in an
+**httpOnly cookie** (frontend's assumption — XSS cannot read it, needs CSRF
+protection) versus **in the response body** (backend's current design — client
+stores it, simpler, but XSS-readable). Pick one and change the other side.

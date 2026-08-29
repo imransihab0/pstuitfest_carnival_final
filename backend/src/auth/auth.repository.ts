@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../infrastructure/prisma/prisma.service.js';
 import { generateReference } from '../common/reference.js';
 import { SIGNUP_BONUS_POISHA } from '../common/money.js';
@@ -46,6 +46,33 @@ export class AuthRepository {
    * ledger.
    */
   async createUserWithSeededAccount(params: {
+    email: string;
+    phone: string;
+    username: string;
+    displayName: string;
+    passwordHash: string;
+    pinHash: string;
+  }): Promise<{ userId: string; accountId: string; balancePoisha: bigint }> {
+    try {
+      return await this.createUserWithSeededAccountUnsafe(params);
+    } catch (error) {
+      // Uniqueness is enforced by the database, not by a pre-flight SELECT — a
+      // check-then-insert would let two simultaneous signups both pass. So the
+      // constraint violation is the normal path for a duplicate, and it must be
+      // translated into a clear 409 rather than surfacing as an opaque 500.
+      const field = uniqueViolationField(error);
+      if (field !== null) {
+        throw new ConflictException({
+          code: 'ALREADY_REGISTERED',
+          message: `That ${field} is already registered. Try signing in instead.`,
+          field,
+        });
+      }
+      throw error;
+    }
+  }
+
+  private async createUserWithSeededAccountUnsafe(params: {
     email: string;
     phone: string;
     username: string;
@@ -282,4 +309,29 @@ export class AuthRepository {
       where: { familyId, revokedAt: null },
     });
   }
+}
+
+/**
+ * Maps a unique-constraint violation onto the field a user can act on.
+ *
+ * Both the plain unique indexes and the case-insensitive functional ones
+ * (uq_users_email_lower, uq_users_username_lower) are covered — a user who
+ * signs up with "Alice@..." after "alice@..." exists must get the same clear
+ * message, not a different error.
+ */
+function uniqueViolationField(error: unknown): string | null {
+  if (typeof error !== 'object' || error === null) return null;
+
+  const code = (error as { code?: unknown }).code;
+  const message = (error as { message?: unknown }).message;
+  const text = typeof message === 'string' ? message : '';
+
+  const isUnique = code === 'P2002' || code === '23505' || text.includes('23505');
+  if (!isUnique) return null;
+
+  const haystack = `${text} ${JSON.stringify((error as { meta?: unknown }).meta ?? {})}`;
+  if (/email/i.test(haystack)) return 'email address';
+  if (/username/i.test(haystack)) return 'username';
+  if (/phone/i.test(haystack)) return 'phone number';
+  return 'account detail';
 }

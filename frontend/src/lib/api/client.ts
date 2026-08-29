@@ -45,6 +45,35 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
+if (import.meta.env.DEV) {
+  // Dev-only request/response tracing. A 404 from a wrong base URL is otherwise
+  // indistinguishable from a generic failure in the UI — this prints the exact
+  // URL and the server's validation messages to the console.
+  apiClient.interceptors.request.use((config) => {
+    console.debug(`[api] -> ${config.method?.toUpperCase()} ${config.baseURL ?? ''}${config.url ?? ''}`)
+    return config
+  })
+
+  apiClient.interceptors.response.use(
+    (response) => {
+      console.debug(`[api] <- ${response.status} ${response.config.url ?? ''}`)
+      return response
+    },
+    (error: AxiosError) => {
+      const url = `${error.config?.baseURL ?? ''}${error.config?.url ?? ''}`
+      const status = error.response?.status ?? 'network'
+      console.error(`[api] <- ${status} ${url}`, error.response?.data ?? error.message)
+      if (status === 404) {
+        console.error(
+          '[api] 404 — check VITE_API_URL. The backend serves everything under /api/v1 ' +
+            '(current base URL: ' + baseURL + ')',
+        )
+      }
+      return Promise.reject(error)
+    },
+  )
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
