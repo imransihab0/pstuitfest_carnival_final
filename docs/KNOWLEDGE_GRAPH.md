@@ -243,6 +243,7 @@ Decisions already made, with the reasoning. **Do not silently reverse these.**
 | Backend scaffold, layering, lint/format/strict TS | ✅ complete |
 | `GET /health` (controller→service→repository) | ✅ complete, tested |
 | Docker Compose (api + postgres + redis) | ✅ written, **not run** (no Docker on dev machine) |
+| Local runtime: PostgreSQL 16 + Redis 8 via Homebrew | ✅ installed, running, wired to the API |
 | Schema, migration, constraints, triggers, views | ✅ complete, **verified on real PostgreSQL 18** |
 | Seed (5 demo users @ ৳100,000, idempotent) | ✅ complete, verified |
 | **Transfer service + concurrency tests** | ✅ complete — see §9 |
@@ -343,15 +344,18 @@ It runs against a **real PostgreSQL** booted in-process by `embedded-postgres`
 
 ## 10. Commands
 
+**Local dependencies are already installed and running** as Homebrew services
+(`postgresql@16`, `redis`). `brew services list` to check; they restart at login.
+
 ```bash
 # from backend/
 npm ci
-cp .env.example .env
-npm run prisma:generate     # MUST run before typecheck/build
-npm run prisma:deploy       # apply migrations
-npm run prisma:seed         # idempotent
-
+cp .env.example .env        # defaults already point at 127.0.0.1
+npm run db:setup            # generate + migrate deploy + seed, in one step
 npm run start:dev
+
+# if the services are not running
+brew services start postgresql@16 && brew services start redis
 
 # gates — all must pass
 npm run typecheck
@@ -360,6 +364,10 @@ npm run format:check
 npm test                    # unit (no DB)
 npm run test:e2e            # HTTP layer (no DB)
 npm run test:integration    # real Postgres, concurrency proof
+                            # (boots its own throwaway cluster; does NOT touch
+                            #  the Homebrew database)
+
+npm run db:reset            # wipe + re-migrate + re-seed the local database
 
 # from repo root
 docker compose up --build
