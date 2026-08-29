@@ -181,6 +181,17 @@ enum IdempotencyState {
   FAILED
 }
 
+/// Why a refresh-token session ended. `REUSE_DETECTED` is the interesting one:
+/// it means a token that had already been rotated was presented again, which is
+/// the signature of a stolen token, so the whole family is revoked.
+enum SessionRevocationReason {
+  ROTATED
+  LOGGED_OUT
+  REUSE_DETECTED
+  EXPIRED
+  PASSWORD_CHANGED
+}
+
 enum NotificationType {
   MONEY_RECEIVED
   MONEY_SENT
@@ -205,9 +216,13 @@ model User {
   email        String     @unique @db.VarChar(255)
   phone        String     @unique @db.VarChar(20)
   username     String     @unique @db.VarChar(50)
-  /// Argon2id/bcrypt digest. A plaintext password is never stored, logged or
+  /// Argon2id digest. A plaintext password is never stored, logged or
   /// returned (FR-A).
   passwordHash String     @map("password_hash") @db.VarChar(255)
+  /// Argon2id digest of the transaction PIN. Separate secret from the password:
+  /// a stolen session or a shoulder-surfed password must not be enough to move
+  /// money. Nullable so an account can exist before a PIN is chosen.
+  pinHash      String?    @map("pin_hash") @db.VarChar(255)
   displayName  String     @map("display_name") @db.VarChar(100)
   status       UserStatus @default(ACTIVE)
 
@@ -219,6 +234,7 @@ model User {
   requestsReceived  MoneyRequest[]   @relation("RequestRequestee")
   idempotencyKeys   IdempotencyKey[]
   notifications     Notification[]
+  sessions          Session[]
 
   // Case-insensitive lookup for login and user search (FR-05) is served by
   // functional indexes on lower(email) / lower(username), added in the
@@ -524,4 +540,54 @@ model Notification {
 
   @@index([userId, createdAt(sort: Desc), id(sort: Desc)])
   @@map("notifications")
+}
+
+/// One issued refresh token.
+///
+/// Refresh tokens rotate: every use mints a replacement and marks the presented
+/// one `ROTATED`. Tokens issued from the same login share a `familyId`, which is
+/// what makes theft detectable.
+///
+/// **Reuse detection.** A rotated token should never be presented again — the
+/// legitimate client has already discarded it. If one is, either the token was
+/// stolen or it was replayed, and we cannot tell which. The safe response is to
+/// revoke the entire family, forcing a fresh login. Refusing only the replayed
+/// token would leave the thief's rotated copy working.
+///
+/// Only the SHA-256 of the token is stored. A database leak must not hand the
+/// attacker usable tokens, and the raw value is never needed again — we only
+/// ever compare.
+///
+/// DATABASE CONSTRAINTS
+///   uq_sessions_token_hash        UNIQUE — a token hash identifies one session.
+///   chk_sessions_revocation_shape A revoked session must say when and why.
+model Session {
+  id       String @id @default(uuid()) @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+  /// Shared by every token descended from one login. Revoked as a unit.
+  familyId String @map("family_id") @db.Uuid
+
+  /// SHA-256 hex of the refresh token. Never the token itself.
+  tokenHash String @unique @map("token_hash") @db.VarChar(64)
+
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  revocationReason SessionRevocationReason? @map("revocation_reason")
+  /// The session that superseded this one, set on rotation.
+  replacedById String? @unique @map("replaced_by_id") @db.Uuid
+
+  /// Recorded for audit, never for authorisation.
+  userAgent String? @map("user_agent") @db.VarChar(255)
+  ipAddress String? @map("ip_address") @db.VarChar(45)
+
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  replacedBy Session?  @relation("SessionRotation", fields: [replacedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  replaces   Session?  @relation("SessionRotation")
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("sessions")
 }

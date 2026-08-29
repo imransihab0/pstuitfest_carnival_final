@@ -41,6 +41,14 @@ export const envSchema = z.object({
   /** Comma-separated list of allowed CORS origins, or `*` in development. */
   CORS_ORIGIN: z.string().default('*'),
 
+  /**
+   * Signing secret for access tokens. No default: a JWT secret that falls back
+   * to a constant is a JWT secret an attacker already has.
+   */
+  JWT_SECRET: z
+    .string()
+    .min(32, 'JWT_SECRET must be at least 32 characters of high-entropy random data'),
+
   /** Structured-log verbosity. */
   LOG_LEVEL: z.enum(['error', 'warn', 'log', 'debug', 'verbose']).default('log'),
 });

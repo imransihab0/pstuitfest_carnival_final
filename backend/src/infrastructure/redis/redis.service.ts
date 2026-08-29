@@ -42,8 +42,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.client.quit();
-    this.logger.log('Redis connection closed');
+    // Shutdown hooks can fire more than once (an explicit destroy followed by
+    // the module closing). Quitting an already-closed client emits a spurious
+    // "Connection is closed" error, so check the state first.
+    if (this.client.status === 'end' || this.client.status === 'close') {
+      return;
+    }
+    try {
+      await this.client.quit();
+      this.logger.log('Redis connection closed');
+    } catch {
+      // Already gone; nothing to close.
+    }
   }
 
   /** Raw client, for repositories that need commands not wrapped here. */
